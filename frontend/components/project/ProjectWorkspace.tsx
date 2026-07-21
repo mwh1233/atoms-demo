@@ -4,11 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageInput } from "@/components/chat/MessageInput";
 import { MessageList, type ChatMessage } from "@/components/chat/MessageList";
 import { ProjectPreviewDemo } from "@/components/preview/ProjectPreviewDemo";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { Message, Project } from "@/lib/types";
 
-type AgentStep = "analyzing" | "designing" | "coding" | "deploying";
+type WorkflowStep = "analyzing" | "designing" | "coding" | "deploying";
+type AgentStep = "pending" | WorkflowStep | "completed";
 
 type ProjectWorkspaceProps = {
   project: Project;
@@ -23,12 +24,12 @@ type TaskCreatedEvent = {
 };
 
 type StepStartEvent = {
-  step: AgentStep;
+  step: WorkflowStep;
   message: string;
 };
 
 type StepCompleteEvent = {
-  step: AgentStep;
+  step: WorkflowStep;
   result: string;
 };
 
@@ -42,14 +43,14 @@ type AgentErrorEvent = {
   retry?: boolean;
 };
 
-const stepIndex: Record<AgentStep, number> = {
+const stepIndex: Record<WorkflowStep, number> = {
   analyzing: 0,
   designing: 1,
   coding: 2,
   deploying: 3
 };
 
-const messageStep: Record<AgentStep, Message["step"]> = {
+const messageStep: Record<WorkflowStep, Message["step"]> = {
   analyzing: "analysis",
   designing: "design",
   coding: "code",
@@ -57,7 +58,7 @@ const messageStep: Record<AgentStep, Message["step"]> = {
 };
 
 const emptyPreviewHtml = `<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -69,18 +70,13 @@ const emptyPreviewHtml = `<!doctype html>
         min-height: 100vh;
         display: grid;
         place-items: center;
-        overflow: hidden;
         background:
           radial-gradient(circle at 50% 28%, rgba(56, 189, 248, 0.14), transparent 34%),
           linear-gradient(135deg, #0f172a 0%, #111827 48%, #1a1a1a 100%);
         color: #e5e7eb;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
-      main {
-        max-width: 520px;
-        padding: 48px 32px;
-        text-align: center;
-      }
+      main { max-width: 520px; padding: 48px 32px; text-align: center; }
       .pulse {
         position: relative;
         width: 56px;
@@ -89,7 +85,6 @@ const emptyPreviewHtml = `<!doctype html>
         border-radius: 999px;
         background: rgba(15, 23, 42, 0.85);
         border: 1px solid rgba(148, 163, 184, 0.26);
-        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
       }
       .pulse::before,
       .pulse::after {
@@ -106,20 +101,8 @@ const emptyPreviewHtml = `<!doctype html>
         background: transparent;
         animation: breathe 1.8s ease-in-out infinite;
       }
-      h1 {
-        margin: 0;
-        color: #f8fafc;
-        font-size: 28px;
-        font-weight: 650;
-        letter-spacing: 0;
-      }
-      p {
-        margin: 14px auto 0;
-        max-width: 380px;
-        color: #94a3b8;
-        font-size: 15px;
-        line-height: 1.7;
-      }
+      h1 { margin: 0; color: #f8fafc; font-size: 28px; font-weight: 650; }
+      p { margin: 14px auto 0; max-width: 380px; color: #94a3b8; font-size: 15px; line-height: 1.7; }
       @keyframes breathe {
         0%, 100% { transform: scale(0.86); opacity: 0.5; }
         50% { transform: scale(1.18); opacity: 1; }
@@ -129,11 +112,32 @@ const emptyPreviewHtml = `<!doctype html>
   <body>
     <main>
       <div class="pulse"></div>
-      <h1>等待生成预览</h1>
-      <p>Agent 完成代码生成后，预览会自动刷新到这里。</p>
+      <h1>Waiting for preview</h1>
+      <p>The generated page will appear here when the workflow produces code.</p>
     </main>
   </body>
 </html>`;
+
+function getStepIndex(step?: string | null) {
+  if (!step || step === "pending") {
+    return 0;
+  }
+  if (step === "completed") {
+    return 3;
+  }
+  return stepIndex[step as WorkflowStep] ?? 0;
+}
+
+function getInitialStepIndex(project: Project) {
+  if (
+    project.status === "awaiting_confirmation" ||
+    project.status === "completed" ||
+    project.status === "failed"
+  ) {
+    return 3;
+  }
+  return getStepIndex(project.current_step);
+}
 
 export function ProjectWorkspace({
   project,
@@ -154,21 +158,24 @@ export function ProjectWorkspace({
           }
         ]
   );
-  const [currentStep, setCurrentStep] = useState(
-    project.current_step ? stepIndex[project.current_step] : 0
-  );
+  const [currentStep, setCurrentStep] = useState(() => getInitialStepIndex(project));
   const [generatedCode, setGeneratedCode] = useState(project.generated_code || "");
   const [deployUrl, setDeployUrl] = useState(project.deployed_url);
-  const [isGenerating, setIsGenerating] = useState(
-    project.status === "pending" || project.status === "generating"
-  );
+  const [projectStatus, setProjectStatus] = useState<Project["status"]>(project.status);
   const [errorMessage, setErrorMessage] = useState(project.error_message || "");
   const eventSourceRef = useRef<EventSource | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const hasStartedRef = useRef(false);
   const reconnectAttemptedRef = useRef(false);
 
-  const agentBaseUrl = process.env.NEXT_PUBLIC_AGENT_API_URL;
+  const agentBaseUrl = useMemo(
+    () => (process.env.NEXT_PUBLIC_AGENT_API_URL || "").trim().replace(/\/$/, ""),
+    []
+  );
   const previewCode = useMemo(() => generatedCode || emptyPreviewHtml, [generatedCode]);
+  const isGenerating = projectStatus === "pending" || projectStatus === "generating";
+  const isAwaitingConfirmation = projectStatus === "awaiting_confirmation";
+  const isInputDisabled = projectStatus === "generating" || projectStatus === "completed";
 
   useEffect(() => {
     if (!agentBaseUrl || hasStartedRef.current || !isGenerating) {
@@ -178,9 +185,21 @@ export function ProjectWorkspace({
     hasStartedRef.current = true;
     const abortController = new AbortController();
 
+    if (projectStatus === "generating") {
+      connectProjectStream();
+      return () => {
+        abortController.abort();
+        eventSourceRef.current?.close();
+      };
+    }
+
+    if (projectStatus !== "pending") {
+      return;
+    }
+
     async function startTask() {
       try {
-        appendAssistantMessage("正在创建生成任务...", "system", true);
+        appendAssistantMessage("Creating generation task...", "system", true);
 
         const response = await fetch(`${agentBaseUrl}/tasks`, {
           method: "POST",
@@ -196,19 +215,28 @@ export function ProjectWorkspace({
         });
 
         if (!response.ok) {
-          throw new Error(`创建任务失败：${response.status}`);
+          throw new Error(`Failed to create task: ${response.status}`);
         }
 
-        const data = (await response.json()) as { taskId: string; status: string };
-        connectStream(data.taskId);
+        const data = (await response.json()) as {
+          projectId: string;
+          status: Project["status"];
+        };
+
+        if (data.status === "failed") {
+          setProjectStatus("failed");
+        }
+
+        setProjectStatus(data.status);
+        connectProjectStream();
       } catch (error) {
         if (abortController.signal.aborted) {
           return;
         }
 
-        const message = error instanceof Error ? error.message : "创建任务失败";
+        const message = error instanceof Error ? error.message : "Failed to create task";
         setErrorMessage(message);
-        setIsGenerating(false);
+        setProjectStatus("failed");
         appendAssistantMessage(message, "system", false);
       }
     }
@@ -219,35 +247,53 @@ export function ProjectWorkspace({
       abortController.abort();
       eventSourceRef.current?.close();
     };
-  }, [agentBaseUrl, isGenerating, project.id, project.initial_prompt, userId]);
+  }, [
+    agentBaseUrl,
+    isGenerating,
+    project.id,
+    project.initial_prompt,
+    projectStatus,
+    userId
+  ]);
 
-  function connectStream(taskId: string) {
+  function connectProjectStream() {
     if (!agentBaseUrl) {
       return;
     }
 
     eventSourceRef.current?.close();
-    const eventSource = new EventSource(`${agentBaseUrl}/tasks/${taskId}/stream`);
+    const eventSource = new EventSource(`${agentBaseUrl}/tasks/project/${project.id}/stream`);
     eventSourceRef.current = eventSource;
+    bindStreamEvents(eventSource, connectProjectStream);
+  }
 
+  function bindStreamEvents(eventSource: EventSource, reconnect: () => void) {
     eventSource.addEventListener("task_created", (event) => {
       const data = parseEvent<TaskCreatedEvent>(event);
       if (!data) return;
-      setCurrentStep(stepIndex[data.currentStep]);
-      appendAssistantMessage(`任务已创建：${data.status}`, "system", false);
+      setProjectStatus(data.status as Project["status"]);
+      setCurrentStep(getStepIndex(data.currentStep));
+      appendAssistantMessage(`Task created: ${data.status}`, "system", false);
     });
 
     eventSource.addEventListener("step_start", (event) => {
       const data = parseEvent<StepStartEvent>(event);
       if (!data) return;
-      setCurrentStep(stepIndex[data.step]);
+      setCurrentStep(getStepIndex(data.step));
       appendAssistantMessage(data.message, messageStep[data.step], true);
     });
 
     eventSource.addEventListener("step_complete", (event) => {
       const data = parseEvent<StepCompleteEvent>(event);
       if (!data) return;
-      setCurrentStep(Math.min(stepIndex[data.step] + 1, 3));
+
+      setCurrentStep(Math.min(getStepIndex(data.step) + 1, 3));
+      if (data.step === "coding" && data.result) {
+        setGeneratedCode(data.result);
+      }
+      if (data.step === "deploying" && data.result) {
+        setDeployUrl(data.result);
+      }
       setMessages((current) => current.map((item) => ({ ...item, isStreaming: false })));
       appendAssistantMessage(data.result, messageStep[data.step], false);
     });
@@ -258,18 +304,17 @@ export function ProjectWorkspace({
       setGeneratedCode(data.code);
       setDeployUrl(data.deployUrl ?? null);
       setCurrentStep(3);
-      setIsGenerating(false);
-      appendAssistantMessage("生成完成，预览区已更新。", "system", false);
-      void persistProjectCompletion(data);
+      setProjectStatus("awaiting_confirmation");
+      appendAssistantMessage("Generation completed. Preview updated.", "system", false);
       eventSource.close();
     });
 
     eventSource.addEventListener("error", (event) => {
       if ("data" in event && typeof event.data === "string" && event.data) {
         const data = parseEvent<AgentErrorEvent>(event);
-        const message = data?.message || "Agent 生成失败";
+        const message = data?.message || "Agent generation failed";
         setErrorMessage(message);
-        setIsGenerating(false);
+        setProjectStatus("failed");
         appendAssistantMessage(message, "system", false);
         eventSource.close();
         return;
@@ -278,44 +323,111 @@ export function ProjectWorkspace({
       if (!reconnectAttemptedRef.current) {
         reconnectAttemptedRef.current = true;
         eventSource.close();
-        window.setTimeout(() => connectStream(taskId), 1000);
+        window.setTimeout(reconnect, 1000);
         return;
       }
 
-      setErrorMessage("SSE 连接已断开，请稍后重试。");
-      setIsGenerating(false);
-      appendAssistantMessage("SSE 连接已断开，请稍后重试。", "system", false);
+      setErrorMessage("SSE connection was interrupted. Please retry later.");
+      setProjectStatus("failed");
+      appendAssistantMessage("SSE connection was interrupted. Please retry later.", "system", false);
       eventSource.close();
     });
   }
 
-  async function persistProjectCompletion(data: CompletedEvent) {
-    const supabase = createSupabaseBrowserClient();
-    await supabase
-      .from("projects")
-      .update({
-        status: "completed",
-        current_step: null,
-        generated_code: data.code,
-        deploy_status: data.deployUrl ? "success" : "not_deployed",
-        deployed_url: data.deployUrl ?? null,
-        deployed_at: data.deployUrl ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", project.id);
+  async function confirmProject() {
+    if (!agentBaseUrl) {
+      return;
+    }
+
+    const response = await fetch(`${agentBaseUrl}/tasks/project/${project.id}/confirm`, {
+      method: "POST"
+    });
+
+    if (!response.ok) {
+      setErrorMessage(`Failed to confirm project: ${response.status}`);
+      return;
+    }
+
+    setProjectStatus("completed");
+    setCurrentStep(3);
+    appendAssistantMessage("Project marked as completed.", "system", false);
   }
 
-  function handleSend(content: string) {
+  function focusIterationInput() {
+    inputRef.current?.focus();
+  }
+
+  async function handleSend(content: string) {
+    if (!agentBaseUrl) {
+      setErrorMessage("Agent API URL is not configured.");
+      return;
+    }
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      project_id: project.id,
+      role: "user",
+      content,
+      step: null,
+      created_at: new Date().toISOString()
+    };
+
+    if (!isAwaitingConfirmation) {
+      try {
+        setErrorMessage("");
+        const response = await fetch(`${agentBaseUrl}/tasks/project/${project.id}/messages`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ content })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to save message: ${response.status}`);
+        }
+
+        appendUserMessage(userMessage);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to save message";
+        setErrorMessage(message);
+        appendAssistantMessage(message, "system", false);
+      }
+      return;
+    }
+
+    try {
+      setErrorMessage("");
+      setCurrentStep(2);
+      setProjectStatus("generating");
+      reconnectAttemptedRef.current = false;
+
+      const response = await fetch(`${agentBaseUrl}/tasks/project/${project.id}/iterate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ prompt: content })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to start iteration: ${response.status}`);
+      }
+
+      appendUserMessage(userMessage);
+      connectProjectStream();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to start iteration";
+      setErrorMessage(message);
+      setProjectStatus("awaiting_confirmation");
+      appendAssistantMessage(message, "system", false);
+    }
+  }
+
+  function appendUserMessage(message: ChatMessage) {
     setMessages((current) => [
       ...current,
-      {
-        id: `user-${Date.now()}`,
-        project_id: project.id,
-        role: "user",
-        content,
-        step: null,
-        created_at: new Date().toISOString()
-      }
+      message
     ]);
   }
 
@@ -324,25 +436,40 @@ export function ProjectWorkspace({
     step: Message["step"],
     isStreaming: boolean
   ) {
-    setMessages((current) => [
-      ...current.map((item) => ({ ...item, isStreaming: false })),
-      {
-        id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        project_id: project.id,
-        role: "assistant",
-        content,
-        step,
-        created_at: new Date().toISOString(),
-        isStreaming
+    if (!content.trim()) {
+      return;
+    }
+
+    setMessages((current) => {
+      const settledMessages = current.map((item) => ({ ...item, isStreaming: false }));
+      const alreadyExists = settledMessages.some(
+        (item) => item.role === "assistant" && item.step === step && item.content === content
+      );
+
+      if (!isStreaming && alreadyExists) {
+        return settledMessages;
       }
-    ]);
+
+      return [
+        ...settledMessages,
+        {
+          id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          project_id: project.id,
+          role: "assistant",
+          content,
+          step,
+          created_at: new Date().toISOString(),
+          isStreaming
+        }
+      ];
+    });
   }
 
   return (
     <div className="grid min-h-[620px] gap-4 lg:grid-cols-[0.9fr_1.1fr]">
       <Card className="min-h-0 bg-card/90">
         <CardHeader>
-          <CardTitle>对话区</CardTitle>
+          <CardTitle>Conversation</CardTitle>
         </CardHeader>
         <CardContent className="min-h-0">
           <div className="flex h-[620px] min-h-0 flex-col">
@@ -352,7 +479,31 @@ export function ProjectWorkspace({
                 {errorMessage}
               </p>
             ) : null}
-            <MessageInput disabled={isGenerating} onSend={handleSend} />
+            {isAwaitingConfirmation ? (
+              <div className="border-t border-border py-3">
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Generation completed. Are you satisfied with the result?
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={confirmProject}>
+                    Satisfied, finish
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={focusIterationInput}>
+                    Continue editing
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            <MessageInput
+              disabled={isInputDisabled}
+              onSend={handleSend}
+              placeholder={
+                isAwaitingConfirmation
+                  ? "Describe the changes you want for the next iteration..."
+                  : undefined
+              }
+              ref={inputRef}
+            />
           </div>
         </CardContent>
       </Card>
@@ -360,7 +511,7 @@ export function ProjectWorkspace({
       <Card className="min-h-0 bg-card/90">
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
-            <CardTitle>预览区</CardTitle>
+            <CardTitle>Preview</CardTitle>
             {deployUrl ? (
               <a
                 className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
@@ -368,7 +519,7 @@ export function ProjectWorkspace({
                 rel="noreferrer"
                 target="_blank"
               >
-                部署链接
+                Deployment link
               </a>
             ) : null}
           </div>

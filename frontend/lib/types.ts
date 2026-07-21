@@ -5,8 +5,8 @@ export interface Project {
   description: string | null;
   initial_prompt: string;
   generated_code: string | null;
-  status: "pending" | "generating" | "completed" | "failed";
-  current_step: "analyzing" | "designing" | "coding" | "deploying" | null;
+  status: "pending" | "generating" | "awaiting_confirmation" | "completed" | "failed";
+  current_step: "pending" | "analyzing" | "designing" | "coding" | "deploying" | "completed" | null;
   error_message: string | null;
   deploy_status: "not_deployed" | "deploying" | "success" | "failed";
   deployed_url: string | null;

@@ -27,6 +27,7 @@ import type { Project } from "@/lib/types";
 const statusLabels: Record<Project["status"], string> = {
   pending: "等待中",
   generating: "生成中",
+  awaiting_confirmation: "待确认",
   completed: "已完成",
   failed: "失败"
 };
@@ -34,6 +35,7 @@ const statusLabels: Record<Project["status"], string> = {
 const statusClasses: Record<Project["status"], string> = {
   pending: "border-zinc-600 bg-zinc-800 text-zinc-200",
   generating: "border-sky-500/40 bg-sky-500/15 text-sky-200",
+  awaiting_confirmation: "border-amber-500/40 bg-amber-500/15 text-amber-200",
   completed: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
   failed: "border-red-500/40 bg-red-500/15 text-red-200"
 };

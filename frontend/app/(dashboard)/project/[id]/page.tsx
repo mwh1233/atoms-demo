@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 const statusLabels: Record<Project["status"], string> = {
   pending: "等待中",
   generating: "生成中",
+  awaiting_confirmation: "待确认",
   completed: "已完成",
   failed: "失败"
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import { forwardRef, useState, type KeyboardEvent } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,45 +8,51 @@ import { Textarea } from "@/components/ui/textarea";
 type MessageInputProps = {
   onSend: (content: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 };
 
-export function MessageInput({ onSend, disabled = false }: MessageInputProps) {
-  const [value, setValue] = useState("");
+export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
+  function MessageInput({ onSend, disabled = false, placeholder }, ref) {
+    const [value, setValue] = useState("");
 
-  function submit() {
-    const trimmedValue = value.trim();
+    function submit() {
+      const trimmedValue = value.trim();
 
-    if (!trimmedValue || disabled) {
-      return;
+      if (!trimmedValue || disabled) {
+        return;
+      }
+
+      onSend(trimmedValue);
+      setValue("");
     }
 
-    onSend(trimmedValue);
-    setValue("");
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      submit();
+    function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        submit();
+      }
     }
-  }
 
-  return (
-    <div className="border-t border-border bg-card pt-4">
-      <div className="flex gap-3">
-        <Textarea
-          className="min-h-12 resize-none"
-          disabled={disabled}
-          placeholder={disabled ? "生成中，请稍候..." : "继续补充你的需求..."}
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        <Button className="h-12 shrink-0" disabled={disabled || !value.trim()} onClick={submit}>
-          <Send className="mr-2 h-4 w-4" />
-          发送
-        </Button>
+    return (
+      <div className="border-t border-border bg-card pt-4">
+        <div className="flex gap-3">
+          <Textarea
+            className="min-h-12 resize-none"
+            disabled={disabled}
+            placeholder={
+              placeholder || (disabled ? "Generating, please wait..." : "Describe what to change...")
+            }
+            ref={ref}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+          <Button className="h-12 shrink-0" disabled={disabled || !value.trim()} onClick={submit}>
+            <Send className="mr-2 h-4 w-4" />
+            Send
+          </Button>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
+);

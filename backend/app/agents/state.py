@@ -13,3 +13,5 @@ class AgentState(TypedDict):
     current_step: str
     status: str
     error_message: Optional[str]
+    is_iteration: bool
+    previous_code: Optional[str]

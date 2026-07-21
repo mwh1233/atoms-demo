@@ -71,6 +71,25 @@ def design_node(state: AgentState) -> dict:
 
 
 def code_node(state: AgentState) -> dict:
+    if state.get("is_iteration") and state.get("previous_code"):
+        user_content = f"""已有代码：
+{state["previous_code"]}
+
+新的修改需求：
+{state["user_prompt"]}
+
+请输出包含所有修改后的完整单文件 HTML。"""
+        result = _call_llm(
+            """你是前端工程师，请基于以下已有代码，根据用户的新需求进行修改和优化。
+保持整体风格和结构不变，只改动需要的部分。
+输出完整的单文件 HTML，包含所有修改。""",
+            user_content,
+        )
+        return {
+            "generated_code": _clean_html_code(result),
+            "current_step": "coding",
+        }
+
     result = _call_llm(
         SYSTEM_PROMPTS["coder"],
         state["design_result"] or "",
