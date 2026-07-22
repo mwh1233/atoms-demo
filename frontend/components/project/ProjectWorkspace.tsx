@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageInput } from "@/components/chat/MessageInput";
 import { MessageList, type ChatMessage } from "@/components/chat/MessageList";
+import { StepProgress } from "@/components/chat/StepProgress";
 import { ProjectPreviewDemo } from "@/components/preview/ProjectPreviewDemo";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Message, Project } from "@/lib/types";
+import type { Feature, Message, Project } from "@/lib/types";
 
 type WorkflowStep = "analyzing" | "designing" | "coding" | "deploying";
 type AgentStep = "pending" | WorkflowStep | "completed";
@@ -31,11 +31,25 @@ type StepStartEvent = {
 type StepCompleteEvent = {
   step: WorkflowStep;
   result: string;
+  generatedFiles?: Record<string, string>;
+  templateId?: string | null;
+};
+
+type TokenEvent = {
+  step: WorkflowStep;
+  delta: string;
+  content: string;
 };
 
 type CompletedEvent = {
   code: string;
   deployUrl?: string | null;
+  generatedFiles?: Record<string, string>;
+  templateId?: string | null;
+};
+
+type FeaturesConfirmationEvent = {
+  features: Feature[];
 };
 
 type AgentErrorEvent = {
@@ -123,20 +137,32 @@ function getStepIndex(step?: string | null) {
     return 0;
   }
   if (step === "completed") {
-    return 3;
+    return 4;
   }
   return stepIndex[step as WorkflowStep] ?? 0;
 }
 
 function getInitialStepIndex(project: Project) {
+  if (project.status === "awaiting_features_confirmation") {
+    return 1;
+  }
+
   if (
     project.status === "awaiting_confirmation" ||
     project.status === "completed" ||
     project.status === "failed"
   ) {
-    return 3;
+    return 4;
   }
   return getStepIndex(project.current_step);
+}
+
+function normalizeAgentBaseUrl(url: string) {
+  const normalizedUrl = url.trim().replace(/\/$/, "");
+  if (!normalizedUrl) {
+    return "";
+  }
+  return normalizedUrl.endsWith("/api") ? normalizedUrl : `${normalizedUrl}/api`;
 }
 
 export function ProjectWorkspace({
@@ -160,46 +186,82 @@ export function ProjectWorkspace({
   );
   const [currentStep, setCurrentStep] = useState(() => getInitialStepIndex(project));
   const [generatedCode, setGeneratedCode] = useState(project.generated_code || "");
+  const [generatedFiles, setGeneratedFiles] = useState<Record<string, string>>(
+    project.generated_files || {}
+  );
+  const [templateId, setTemplateId] = useState(project.template_id || "fullstack-shadcn");
   const [deployUrl, setDeployUrl] = useState(project.deployed_url);
   const [projectStatus, setProjectStatus] = useState<Project["status"]>(project.status);
   const [errorMessage, setErrorMessage] = useState(project.error_message || "");
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [isConfirmingFeatures, setIsConfirmingFeatures] = useState(false);
+  const [features, setFeatures] = useState<Feature[]>(project.features_list || []);
+  const [selectedFeatureIds, setSelectedFeatureIds] = useState<Set<string>>(
+    () =>
+      new Set(
+        (project.confirmed_features?.length
+          ? project.confirmed_features
+          : project.features_list || []
+        )
+          .filter((feature) => feature.defaultSelected !== false)
+          .map((feature) => feature.id),
+      ),
+  );
   const eventSourceRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const hasStartedRef = useRef(false);
+  const projectStatusRef = useRef<Project["status"]>(project.status);
+  const sseConnectedRef = useRef(false);
+  const taskCreationStartedRef = useRef(false);
   const reconnectAttemptedRef = useRef(false);
 
   const agentBaseUrl = useMemo(
-    () => (process.env.NEXT_PUBLIC_AGENT_API_URL || "").trim().replace(/\/$/, ""),
+    () => normalizeAgentBaseUrl(process.env.NEXT_PUBLIC_AGENT_API_URL || ""),
     []
   );
   const previewCode = useMemo(() => generatedCode || emptyPreviewHtml, [generatedCode]);
   const isGenerating = projectStatus === "pending" || projectStatus === "generating";
+  const isAwaitingFeaturesConfirmation =
+    projectStatus === "awaiting_features_confirmation";
   const isAwaitingConfirmation = projectStatus === "awaiting_confirmation";
-  const isInputDisabled = projectStatus === "generating" || projectStatus === "completed";
+  const isInputDisabled =
+    projectStatus === "generating" ||
+    projectStatus === "awaiting_features_confirmation" ||
+    projectStatus === "completed";
 
   useEffect(() => {
-    if (!agentBaseUrl || hasStartedRef.current || !isGenerating) {
+    projectStatusRef.current = project.status;
+  }, [project.status]);
+
+  useEffect(() => {
+    projectStatusRef.current = projectStatus;
+  }, [projectStatus]);
+
+  useEffect(() => {
+    const shouldConnectStream =
+      projectStatusRef.current === "pending" || projectStatusRef.current === "generating";
+
+    if (!agentBaseUrl && shouldConnectStream) {
+      setErrorMessage("Agent API URL is not configured.");
       return;
     }
 
-    hasStartedRef.current = true;
+    if (!agentBaseUrl || !shouldConnectStream) {
+      return;
+    }
+
     const abortController = new AbortController();
 
-    if (projectStatus === "generating") {
-      connectProjectStream();
-      return () => {
-        abortController.abort();
-        eventSourceRef.current?.close();
-      };
-    }
-
-    if (projectStatus !== "pending") {
-      return;
-    }
-
     async function startTask() {
+      if (taskCreationStartedRef.current || abortController.signal.aborted) {
+        return;
+      }
+      if (projectStatusRef.current !== "pending") {
+        return;
+      }
+
+      taskCreationStartedRef.current = true;
       try {
-        appendAssistantMessage("Creating generation task...", "system", true);
+        appendAssistantMessage("Creating generation task...", "system", false);
 
         const response = await fetch(`${agentBaseUrl}/tasks`, {
           method: "POST",
@@ -228,11 +290,11 @@ export function ProjectWorkspace({
         }
 
         setProjectStatus(data.status);
-        connectProjectStream();
       } catch (error) {
         if (abortController.signal.aborted) {
           return;
         }
+        taskCreationStartedRef.current = false;
 
         const message = error instanceof Error ? error.message : "Failed to create task";
         setErrorMessage(message);
@@ -241,30 +303,43 @@ export function ProjectWorkspace({
       }
     }
 
-    startTask();
+    const eventSource = connectProjectStream(() => {
+      sseConnectedRef.current = true;
+      if (projectStatusRef.current === "pending") {
+        void startTask();
+      }
+    });
 
     return () => {
       abortController.abort();
-      eventSourceRef.current?.close();
+      sseConnectedRef.current = false;
+      eventSource?.close();
     };
   }, [
     agentBaseUrl,
-    isGenerating,
     project.id,
     project.initial_prompt,
-    projectStatus,
     userId
   ]);
 
-  function connectProjectStream() {
+  function connectProjectStream(onOpen?: () => void) {
     if (!agentBaseUrl) {
-      return;
+      return null;
     }
 
     eventSourceRef.current?.close();
-    const eventSource = new EventSource(`${agentBaseUrl}/tasks/project/${project.id}/stream`);
+    const streamUrl = new URL(
+      `${agentBaseUrl}/tasks/project/${project.id}/stream`,
+      window.location.origin,
+    );
+    streamUrl.searchParams.set("userId", userId);
+    const eventSource = new EventSource(streamUrl.toString());
     eventSourceRef.current = eventSource;
+    if (onOpen) {
+      eventSource.addEventListener("open", onOpen, { once: true });
+    }
     bindStreamEvents(eventSource, connectProjectStream);
+    return eventSource;
   }
 
   function bindStreamEvents(eventSource: EventSource, reconnect: () => void) {
@@ -280,32 +355,68 @@ export function ProjectWorkspace({
       const data = parseEvent<StepStartEvent>(event);
       if (!data) return;
       setCurrentStep(getStepIndex(data.step));
-      appendAssistantMessage(data.message, messageStep[data.step], true);
+      appendAssistantMessage("正在思考...", messageStep[data.step], true);
+    });
+
+    eventSource.addEventListener("token", (event) => {
+      const data = parseEvent<TokenEvent>(event);
+      if (!data) return;
+      updateAssistantMessage(messageStep[data.step], data.content);
     });
 
     eventSource.addEventListener("step_complete", (event) => {
       const data = parseEvent<StepCompleteEvent>(event);
       if (!data) return;
 
-      setCurrentStep(Math.min(getStepIndex(data.step) + 1, 3));
+      setCurrentStep(Math.min(getStepIndex(data.step) + 1, 4));
       if (data.step === "coding" && data.result) {
         setGeneratedCode(data.result);
+      }
+      if (data.step === "coding" && data.generatedFiles) {
+        setGeneratedFiles(data.generatedFiles);
+      }
+      if (data.templateId) {
+        setTemplateId(data.templateId);
       }
       if (data.step === "deploying" && data.result) {
         setDeployUrl(data.result);
       }
-      setMessages((current) => current.map((item) => ({ ...item, isStreaming: false })));
-      appendAssistantMessage(data.result, messageStep[data.step], false);
+      finishAssistantMessage(messageStep[data.step], data.result);
     });
 
     eventSource.addEventListener("completed", (event) => {
       const data = parseEvent<CompletedEvent>(event);
       if (!data) return;
       setGeneratedCode(data.code);
+      if (data.generatedFiles) {
+        setGeneratedFiles(data.generatedFiles);
+      }
+      if (data.templateId) {
+        setTemplateId(data.templateId);
+      }
       setDeployUrl(data.deployUrl ?? null);
-      setCurrentStep(3);
+      setCurrentStep(4);
       setProjectStatus("awaiting_confirmation");
       appendAssistantMessage("Generation completed. Preview updated.", "system", false);
+      eventSource.close();
+    });
+
+    eventSource.addEventListener("features_confirmation", (event) => {
+      const data = parseEvent<FeaturesConfirmationEvent>(event);
+      if (!data) return;
+
+      const nextFeatures = data.features || [];
+      setFeatures(nextFeatures);
+      setSelectedFeatureIds(
+        new Set(
+          nextFeatures
+            .filter((feature) => feature.defaultSelected !== false)
+            .map((feature) => feature.id),
+        ),
+      );
+      setCurrentStep(1);
+      setProjectStatus("awaiting_features_confirmation");
+      appendAssistantMessage("请确认要实现的功能点。", "system", false);
       eventSource.close();
     });
 
@@ -335,25 +446,113 @@ export function ProjectWorkspace({
   }
 
   async function confirmProject() {
+    if (isConfirming) {
+      return;
+    }
+
     if (!agentBaseUrl) {
+      setErrorMessage("Agent API URL is not configured.");
       return;
     }
 
-    const response = await fetch(`${agentBaseUrl}/tasks/project/${project.id}/confirm`, {
-      method: "POST"
-    });
+    const userMessage: ChatMessage = {
+      id: `user-confirm-${Date.now()}`,
+      project_id: project.id,
+      role: "user",
+      content: "满意，确认完成",
+      step: null,
+      created_at: new Date().toISOString()
+    };
 
-    if (!response.ok) {
-      setErrorMessage(`Failed to confirm project: ${response.status}`);
-      return;
+    appendUserMessage(userMessage);
+    setErrorMessage("");
+    setIsConfirming(true);
+
+    try {
+      const response = await fetch(`${agentBaseUrl}/tasks/project/${project.id}/confirm`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ userId })
+      });
+
+      if (!response.ok) {
+        throw new Error(`确认项目失败：${response.status}`);
+      }
+
+      setProjectStatus("completed");
+    setCurrentStep(4);
+      appendAssistantMessage("项目已确认完成。", "system", false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "确认项目失败";
+      setErrorMessage(message);
+      appendAssistantMessage(message, "system", false);
+    } finally {
+      setIsConfirming(false);
     }
-
-    setProjectStatus("completed");
-    setCurrentStep(3);
-    appendAssistantMessage("Project marked as completed.", "system", false);
   }
 
-  function focusIterationInput() {
+  async function confirmFeatures() {
+    if (!agentBaseUrl || isConfirmingFeatures) {
+      return;
+    }
+
+    const confirmedFeatures = features.filter((feature) =>
+      selectedFeatureIds.has(feature.id),
+    );
+    setErrorMessage("");
+    setIsConfirmingFeatures(true);
+
+    try {
+      const response = await fetch(
+        `${agentBaseUrl}/tasks/project/${project.id}/features/confirm`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userId, confirmedFeatures }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to confirm features: ${response.status}`);
+      }
+
+      setProjectStatus("generating");
+      setCurrentStep(1);
+      reconnectAttemptedRef.current = false;
+      appendAssistantMessage("功能点已确认，开始生成方案和代码。", "system", false);
+      connectProjectStream();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to confirm features";
+      setErrorMessage(message);
+      appendAssistantMessage(message, "system", false);
+    } finally {
+      setIsConfirmingFeatures(false);
+    }
+  }
+
+  function toggleFeature(featureId: string) {
+    setSelectedFeatureIds((current) => {
+      const next = new Set(current);
+      if (next.has(featureId)) {
+        next.delete(featureId);
+      } else {
+        next.add(featureId);
+      }
+      return next;
+    });
+  }
+
+  function promptForIterationInput() {
+    appendAssistantMessage(
+      "请描述你想要修改的内容，发送后开始新一轮迭代生成",
+      "system",
+      false
+    );
     inputRef.current?.focus();
   }
 
@@ -372,6 +571,8 @@ export function ProjectWorkspace({
       created_at: new Date().toISOString()
     };
 
+    appendUserMessage(userMessage);
+
     if (!isAwaitingConfirmation) {
       try {
         setErrorMessage("");
@@ -380,14 +581,12 @@ export function ProjectWorkspace({
           headers: {
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ content })
+          body: JSON.stringify({ userId, content })
         });
 
         if (!response.ok) {
           throw new Error(`Failed to save message: ${response.status}`);
         }
-
-        appendUserMessage(userMessage);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to save message";
         setErrorMessage(message);
@@ -407,14 +606,13 @@ export function ProjectWorkspace({
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ prompt: content })
+        body: JSON.stringify({ userId, prompt: content })
       });
 
       if (!response.ok) {
         throw new Error(`Failed to start iteration: ${response.status}`);
       }
 
-      appendUserMessage(userMessage);
       connectProjectStream();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start iteration";
@@ -465,69 +663,178 @@ export function ProjectWorkspace({
     });
   }
 
-  return (
-    <div className="grid min-h-[620px] gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-      <Card className="min-h-0 bg-card/90">
-        <CardHeader>
-          <CardTitle>Conversation</CardTitle>
-        </CardHeader>
-        <CardContent className="min-h-0">
-          <div className="flex h-[620px] min-h-0 flex-col">
-            <MessageList currentStep={currentStep} messages={messages} />
-            {errorMessage ? (
-              <p className="border-t border-border pt-3 text-sm text-destructive-foreground">
-                {errorMessage}
-              </p>
-            ) : null}
-            {isAwaitingConfirmation ? (
-              <div className="border-t border-border py-3">
-                <p className="mb-3 text-sm text-muted-foreground">
-                  Generation completed. Are you satisfied with the result?
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={confirmProject}>
-                    Satisfied, finish
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={focusIterationInput}>
-                    Continue editing
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            <MessageInput
-              disabled={isInputDisabled}
-              onSend={handleSend}
-              placeholder={
-                isAwaitingConfirmation
-                  ? "Describe the changes you want for the next iteration..."
-                  : undefined
-              }
-              ref={inputRef}
-            />
-          </div>
-        </CardContent>
-      </Card>
+  function updateAssistantMessage(step: Message["step"], content: string) {
+    setMessages((current) => {
+      const lastIndexFromEnd = [...current]
+        .reverse()
+        .findIndex((message) => message.role === "assistant" && message.step === step);
 
-      <Card className="min-h-0 bg-card/90">
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <CardTitle>Preview</CardTitle>
-            {deployUrl ? (
-              <a
-                className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                href={deployUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                Deployment link
-              </a>
-            ) : null}
+      if (lastIndexFromEnd === -1) {
+        return [
+          ...current,
+          {
+            id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            project_id: project.id,
+            role: "assistant",
+            content,
+            step,
+            created_at: new Date().toISOString(),
+            isStreaming: true
+          }
+        ];
+      }
+
+      const actualIndex = current.length - 1 - lastIndexFromEnd;
+      const updated = [...current];
+      updated[actualIndex] = {
+        ...updated[actualIndex],
+        content,
+        isStreaming: true
+      };
+      return updated;
+    });
+  }
+
+  function finishAssistantMessage(step: Message["step"], fallbackContent: string) {
+    setMessages((current) => {
+      const lastIndexFromEnd = [...current]
+        .reverse()
+        .findIndex((message) => message.role === "assistant" && message.step === step);
+
+      if (lastIndexFromEnd === -1) {
+        if (!fallbackContent.trim()) {
+          return current.map((item) => ({ ...item, isStreaming: false }));
+        }
+        return [
+          ...current.map((item) => ({ ...item, isStreaming: false })),
+          {
+            id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            project_id: project.id,
+            role: "assistant",
+            content: fallbackContent,
+            step,
+            created_at: new Date().toISOString(),
+            isStreaming: false
+          }
+        ];
+      }
+
+      const actualIndex = current.length - 1 - lastIndexFromEnd;
+      return current.map((message, index) => {
+        if (index !== actualIndex) {
+          return { ...message, isStreaming: false };
+        }
+
+        return {
+          ...message,
+          content:
+            message.content === "正在思考..." && fallbackContent.trim()
+              ? fallbackContent
+              : message.content,
+          isStreaming: false
+        };
+      });
+    });
+  }
+
+  return (
+    <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden bg-background">
+      <aside className="flex min-w-[320px] w-[clamp(320px,28vw,380px)] shrink-0 flex-col border-r border-border bg-card/95">
+        <StepProgress currentStep={currentStep} />
+        <MessageList messages={messages} />
+        {errorMessage ? (
+          <p className="border-t border-border px-4 py-3 text-sm text-destructive-foreground">
+            {errorMessage}
+          </p>
+        ) : null}
+        {isAwaitingFeaturesConfirmation ? (
+          <div className="max-h-[280px] overflow-y-auto overflow-x-hidden border-t border-border px-4 py-3">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Select the features to include before generation continues.
+            </p>
+            <div className="mb-3 space-y-2">
+              {features.map((feature) => (
+                <label
+                  key={feature.id}
+                  className="flex min-w-0 cursor-pointer gap-3 rounded-md border border-border bg-background/60 p-3 text-sm"
+                >
+                  <input
+                    checked={selectedFeatureIds.has(feature.id)}
+                    className="mt-1 shrink-0"
+                    onChange={() => toggleFeature(feature.id)}
+                    type="checkbox"
+                  />
+                  <span className="min-w-0">
+                    <span className="block break-words font-medium text-foreground">
+                      {feature.name}
+                    </span>
+                    <span className="mt-1 block break-words text-muted-foreground">
+                      {feature.description}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <Button
+              className="w-full"
+              disabled={isConfirmingFeatures || selectedFeatureIds.size === 0}
+              size="sm"
+              onClick={confirmFeatures}
+            >
+              {isConfirmingFeatures ? "Confirming..." : "Confirm features"}
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent className="min-h-0">
-          <ProjectPreviewDemo code={previewCode} />
-        </CardContent>
-      </Card>
+        ) : null}
+        {isAwaitingConfirmation ? (
+          <div className="border-t border-border px-4 py-3">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Generation completed. Are you satisfied with the result?
+            </p>
+            <div className="grid gap-2">
+              <Button size="sm" disabled={isConfirming} onClick={confirmProject}>
+                {isConfirming ? "Confirming..." : "Satisfied, finish"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={promptForIterationInput}>
+                Continue editing
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        <MessageInput
+          disabled={isInputDisabled}
+          onSend={handleSend}
+          placeholder={
+            isAwaitingConfirmation
+              ? "Describe the changes you want for the next iteration..."
+              : undefined
+          }
+          ref={inputRef}
+        />
+      </aside>
+
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+          <h2 className="text-sm font-medium text-foreground">Preview</h2>
+          {deployUrl ? (
+            <a
+              className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              href={deployUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Deployment link
+            </a>
+          ) : null}
+        </div>
+        <div className="min-h-0 flex-1">
+          <ProjectPreviewDemo
+            code={previewCode}
+            deployUrl={deployUrl}
+            generatedFiles={generatedFiles}
+            templateId={templateId}
+          />
+        </div>
+      </main>
     </div>
   );
 }

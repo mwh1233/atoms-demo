@@ -11,7 +11,7 @@ type StepProgressProps = {
 
 export function StepProgress({ currentStep }: StepProgressProps) {
   return (
-    <div className="rounded-lg border border-border bg-background/70 p-4">
+    <div className="border-b border-border bg-background/70 px-4 py-3">
       <div className="flex items-center">
         {steps.map((step, index) => {
           const isCompleted = index < currentStep;
@@ -44,7 +44,7 @@ export function StepProgress({ currentStep }: StepProgressProps) {
               {index < steps.length - 1 ? (
                 <div
                   className={cn(
-                    "mx-3 h-px flex-1 bg-border transition-colors duration-500",
+                    "mx-2 h-px flex-1 bg-border transition-colors duration-500",
                     index < currentStep && "bg-emerald-500",
                     index === currentStep && "bg-sky-500/70"
                   )}

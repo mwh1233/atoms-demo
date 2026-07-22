@@ -12,6 +12,14 @@ type HomeCreateFormProps = {
   userId?: string | null;
 };
 
+function normalizeAgentBaseUrl(url: string) {
+  const normalizedUrl = url.trim().replace(/\/$/, "");
+  if (!normalizedUrl) {
+    return "";
+  }
+  return normalizedUrl.endsWith("/api") ? normalizedUrl : `${normalizedUrl}/api`;
+}
+
 export function HomeCreateForm({ templates, userId }: HomeCreateFormProps) {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
@@ -52,12 +60,49 @@ export function HomeCreateForm({ templates, userId }: HomeCreateFormProps) {
       .select("id")
       .single();
 
-    setIsCreating(false);
-
     if (insertError) {
+      setIsCreating(false);
       setError(insertError.message);
       return;
     }
+
+    await supabase.from("messages").insert({
+      project_id: data.id,
+      role: "user",
+      content: trimmedPrompt,
+      step: "",
+      created_at: new Date().toISOString()
+    });
+
+    const agentBaseUrl = normalizeAgentBaseUrl(process.env.NEXT_PUBLIC_AGENT_API_URL || "");
+    if (agentBaseUrl) {
+      let taskResponse: Response;
+      try {
+        taskResponse = await fetch(`${agentBaseUrl}/tasks`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            projectId: data.id,
+            userId,
+            prompt: trimmedPrompt
+          })
+        });
+      } catch (error) {
+        setIsCreating(false);
+        setError(error instanceof Error ? error.message : "Failed to create generation task");
+        return;
+      }
+
+      if (!taskResponse.ok) {
+        setIsCreating(false);
+        setError(`Failed to create generation task: ${taskResponse.status}`);
+        return;
+      }
+    }
+
+    setIsCreating(false);
 
     router.push(`/project/${data.id}`);
     router.refresh();

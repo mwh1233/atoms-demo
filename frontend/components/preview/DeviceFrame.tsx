@@ -18,10 +18,10 @@ const frameWidths: Record<PreviewDevice, string> = {
 
 export function DeviceFrame({ device, children }: DeviceFrameProps) {
   return (
-    <div className="flex min-h-0 flex-1 justify-center overflow-auto bg-background p-4">
+    <div className="flex h-full min-h-0 flex-1 justify-center overflow-auto bg-background p-4">
       <div
         className={cn(
-          "min-h-[520px] overflow-hidden rounded-lg border border-border/80 bg-[#0f172a] shadow-2xl shadow-black/30 ring-1 ring-white/5 transition-all duration-300",
+          "h-full min-h-0 overflow-hidden rounded-lg border border-border/80 bg-[#0f172a] shadow-2xl shadow-black/30 ring-1 ring-white/5 transition-all duration-300",
           frameWidths[device]
         )}
       >

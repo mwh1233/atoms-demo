@@ -1,18 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { ProjectWorkspace } from "@/components/project/ProjectWorkspace";
-import { Badge } from "@/components/ui/badge";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Message, Project } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-const statusLabels: Record<Project["status"], string> = {
-  pending: "等待中",
-  generating: "生成中",
-  awaiting_confirmation: "待确认",
-  completed: "已完成",
-  failed: "失败"
-};
 
 type ProjectPageProps = {
   params: {
@@ -57,15 +48,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   const typedProject = project as Project;
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">项目详情</p>
-          <h1 className="text-3xl font-semibold tracking-normal">{typedProject.name}</h1>
-        </div>
-        <Badge variant="outline">{statusLabels[typedProject.status]}</Badge>
-      </div>
-
+    <section className="relative left-1/2 -mb-10 -mt-10 w-screen -translate-x-1/2 overflow-hidden">
       <ProjectWorkspace
         initialMessages={(messages ?? []) as Message[]}
         project={typedProject}

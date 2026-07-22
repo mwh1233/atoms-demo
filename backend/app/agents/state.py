@@ -8,7 +8,14 @@ class AgentState(TypedDict):
     user_prompt: str
     analysis_result: Optional[str]
     design_result: Optional[str]
+    architecture_doc: str
+    file_tree_plan: list[dict]
     generated_code: Optional[str]
+    template_id: str
+    template_code: dict[str, str]
+    generated_files: dict[str, str]
+    features_list: list[dict]
+    confirmed_features: list[dict]
     deploy_url: Optional[str]
     current_step: str
     status: str

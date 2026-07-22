@@ -1,0 +1,46 @@
+{
+  "id": "fullstack-shadcn",
+  "name": "企业级全栈应用",
+  "version": "1.0.0",
+  "description": "FastAPI + React + shadcn/ui 企业级全栈模板，内置认证、自动路由、完整组件库，适合中大型Web应用",
+  "category": "fullstack",
+  "complexity": "high",
+  "techStack": ["FastAPI", "SQLAlchemy", "React", "TypeScript", "Vite", "TailwindCSS", "shadcn/ui", "Alembic"],
+  "fileStructure": [
+    "backend/main.py - FastAPI入口（自动路由发现）",
+    "backend/core/config.py - 配置管理",
+    "backend/routers/ - API路由目录（自动扫描注册）",
+    "backend/models/ - 数据模型",
+    "backend/schemas/ - Pydantic schema",
+    "backend/services/ - 业务服务层",
+    "backend/utils/ - 工具函数",
+    "frontend/src/components/ui/ - 50+ shadcn/ui 组件",
+    "frontend/src/lib/ - 工具库",
+    "frontend/src/hooks/ - 自定义hooks",
+    "frontend/src/contexts/ - React Context",
+    "frontend/src/pages/ - 页面"
+  ],
+  "entryFiles": {
+    "backend": "backend/main.py",
+    "frontend": "frontend/src/App.tsx"
+  },
+  "previewType": "deploy",
+  "generationGuidelines": {
+    "backend": "FastAPI 分层架构，路由放 routers/ 目录会自动注册，不要改 main.py。新增模块在 MODULE_IMPORTS_START 和 MODULE_STARTUP_START 标记之间添加",
+    "frontend": "React + TypeScript + shadcn/ui，组件放 components/，页面放 pages/。UI 组件直接用 components/ui/ 下的，不需要重新安装",
+    "database": "SQLAlchemy + Alembic，模型放 models/ 目录",
+    "codeStyle": "严格遵循示例模块（todos）的写法，保持代码风格一致",
+    "referenceModules": ["todos"],
+    "anchorPoints": "main.py 中有 MODULE_*_START/END 标记，只在标记之间插入代码，不要改动标记外的基础设施"
+  },
+  "features": [
+    "自动路由发现（新增路由自动注册）",
+    "模块化锚点设计（AI增量修改安全）",
+    "内置用户认证系统",
+    "50+ shadcn/ui 组件开箱即用",
+    "完整日志系统（按天切割自动清理）",
+    "全局错误处理（开发/生产分级）",
+    "Alembic 数据库迁移",
+    "CORS 正则匹配"
+  ]
+}

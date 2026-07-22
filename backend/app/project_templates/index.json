@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "templates": [
+    {
+      "id": "simple-html",
+      "name": "纯前端单页应用",
+      "description": "生成单个HTML文件，纯前端，无需后端部署，适合展示页、工具类网站、静态 landing page",
+      "category": "frontend",
+      "complexity": "low",
+      "techStack": ["HTML", "CSS", "JavaScript", "TailwindCSS"],
+      "useCases": ["官网", "落地页", "计算器", "待办清单", "展示型网站", "小游戏"],
+      "tags": ["纯前端", "单文件", "轻量", "快速生成", "无后端"],
+      "deployment": "静态托管即可，部署简单"
+    },
+    {
+      "id": "fullstack-agent",
+      "name": "全栈Agent应用",
+      "description": "FastAPI后端 + React前端 + SQLite数据库，包含用户系统和Agent聊天能力，适合带业务逻辑的完整应用",
+      "category": "fullstack",
+      "complexity": "medium",
+      "techStack": ["FastAPI", "SQLAlchemy", "React", "Vite", "TailwindCSS", "SQLite"],
+      "useCases": ["AI聊天机器人", "数据管理系统", "Agent工具", "带数据库的Web应用", "后台管理系统"],
+      "tags": ["全栈", "后端", "数据库", "Agent", "LLM", "API"],
+      "deployment": "需要分别部署前后端，支持Docker"
+    },
+    {
+      "id": "fullstack-shadcn",
+      "name": "企业级全栈应用",
+      "description": "FastAPI + React + shadcn/ui 企业级全栈模板，内置认证、自动路由、完整组件库，适合中大型Web应用",
+      "category": "fullstack",
+      "complexity": "high",
+      "techStack": ["FastAPI", "SQLAlchemy", "React", "TypeScript", "Vite", "TailwindCSS", "shadcn/ui", "Alembic"],
+      "useCases": ["企业后台", "SaaS应用", "管理系统", "数据看板", "中大型Web应用", "需要认证的业务系统"],
+      "tags": ["企业级", "全栈", "认证", "自动路由", "shadcn/ui", "Alembic", "TypeScript"],
+      "deployment": "需要分别部署前后端，支持数据库迁移和生产级配置"
+    }
+  ]
+}

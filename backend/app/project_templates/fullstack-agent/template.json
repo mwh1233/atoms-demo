@@ -1,0 +1,31 @@
+{
+  "id": "fullstack-agent",
+  "name": "全栈Agent应用",
+  "version": "1.0.0",
+  "description": "FastAPI + SQLAlchemy + React 全栈模板，内置Todo CRUD和聊天接口示例",
+  "fileStructure": [
+    "backend/requirements.txt - Python依赖",
+    "backend/app/main.py - FastAPI入口",
+    "backend/app/database.py - 数据库配置",
+    "backend/app/models.py - 数据模型",
+    "backend/app/schemas.py - Pydantic schema",
+    "backend/app/api/todos.py - Todo CRUD示例",
+    "backend/app/api/chat.py - 聊天接口示例",
+    "frontend/package.json - 前端依赖",
+    "frontend/src/App.jsx - 主组件",
+    "frontend/src/components/TodoList.jsx - Todo列表示例",
+    "frontend/src/components/ChatBox.jsx - 聊天组件示例"
+  ],
+  "entryFiles": {
+    "backend": "backend/app/main.py",
+    "frontend": "frontend/src/App.jsx"
+  },
+  "previewType": "deploy",
+  "generationGuidelines": {
+    "backend": "FastAPI + SQLAlchemy，RESTful API 风格",
+    "frontend": "React函数组件 + Hooks",
+    "database": "SQLite开发，可切换PostgreSQL",
+    "codeStyle": "遵循示例模块的写法，保持一致性",
+    "referenceModules": ["todos", "chat"]
+  }
+}

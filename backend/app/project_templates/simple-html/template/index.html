@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple HTML App</title>
+    <!-- 使用 TailwindCSS CDN，适合单文件快速生成和浏览器直接预览。 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              app: {
+                bg: "#0b0f17",
+                panel: "#121826",
+                line: "#263244",
+                text: "#f8fafc",
+                muted: "#94a3b8",
+                accent: "#38bdf8"
+              }
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="min-h-screen bg-app-bg text-app-text">
+    <div class="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-5 sm:px-6 lg:px-8">
+      <!-- Header：放置品牌、导航或主要操作。 -->
+      <header class="flex flex-col gap-4 border-b border-app-line pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p class="text-sm text-app-muted">Atoms Template</p>
+          <h1 class="mt-1 text-2xl font-semibold tracking-normal">纯前端单页应用</h1>
+        </div>
+        <button
+          id="resetButton"
+          class="rounded-lg border border-app-line px-4 py-2 text-sm font-medium text-app-muted transition hover:border-app-accent hover:text-app-text"
+          type="button"
+        >
+          重置示例
+        </button>
+      </header>
+
+      <!-- Main：AI 生成时可替换为具体业务页面，例如 landing page、工具、小游戏。 -->
+      <main class="grid flex-1 gap-5 py-6 lg:grid-cols-[1.15fr_0.85fr]">
+        <section class="rounded-lg border border-app-line bg-app-panel p-5">
+          <p class="text-sm text-app-muted">示例模块</p>
+          <h2 class="mt-2 text-3xl font-semibold">快速构建轻量应用</h2>
+          <p class="mt-3 max-w-2xl text-sm leading-7 text-app-muted">
+            这个模板把 HTML、样式和脚本都放在一个文件中，适合展示页、计算器、待办清单和原型工具。
+            示例状态会写入 localStorage，刷新页面后仍可保留。
+          </p>
+
+          <div class="mt-6 grid gap-3 sm:grid-cols-3">
+            <article class="rounded-lg border border-app-line bg-white/[0.03] p-4">
+              <p class="text-sm font-medium">单文件</p>
+              <p class="mt-2 text-xs leading-6 text-app-muted">直接打开 index.html 即可运行。</p>
+            </article>
+            <article class="rounded-lg border border-app-line bg-white/[0.03] p-4">
+              <p class="text-sm font-medium">响应式</p>
+              <p class="mt-2 text-xs leading-6 text-app-muted">移动端优先，桌面端自动扩展布局。</p>
+            </article>
+            <article class="rounded-lg border border-app-line bg-white/[0.03] p-4">
+              <p class="text-sm font-medium">可持久化</p>
+              <p class="mt-2 text-xs leading-6 text-app-muted">使用 localStorage 保存轻量数据。</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="rounded-lg border border-app-line bg-app-panel p-5">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm text-app-muted">交互示例</p>
+              <h2 class="mt-1 text-xl font-semibold">任务清单</h2>
+            </div>
+            <span id="taskCount" class="rounded-full bg-app-accent px-3 py-1 text-xs font-semibold text-slate-950">0</span>
+          </div>
+
+          <form id="taskForm" class="mt-5 flex gap-2">
+            <input
+              id="taskInput"
+              class="min-w-0 flex-1 rounded-lg border border-app-line bg-app-bg px-3 py-2 text-sm outline-none transition placeholder:text-app-muted focus:border-app-accent"
+              placeholder="输入一个任务"
+              type="text"
+            />
+            <button class="rounded-lg bg-app-accent px-4 py-2 text-sm font-semibold text-slate-950 transition hover:brightness-110" type="submit">
+              添加
+            </button>
+          </form>
+
+          <div id="taskList" class="mt-4 space-y-2"></div>
+        </section>
+      </main>
+
+      <!-- Footer：放置版权、链接或辅助说明。 -->
+      <footer class="border-t border-app-line py-4 text-sm text-app-muted">
+        使用 HTML + TailwindCSS + JavaScript 构建，可静态托管。
+      </footer>
+    </div>
+
+    <script>
+      // 示例脚本：使用 localStorage 保存任务，AI 生成时可替换为业务逻辑。
+      const storageKey = "simple-html-template-tasks";
+      const taskForm = document.querySelector("#taskForm");
+      const taskInput = document.querySelector("#taskInput");
+      const taskList = document.querySelector("#taskList");
+      const taskCount = document.querySelector("#taskCount");
+      const resetButton = document.querySelector("#resetButton");
+
+      let tasks = JSON.parse(localStorage.getItem(storageKey) || "[]");
+
+      function saveTasks() {
+        localStorage.setItem(storageKey, JSON.stringify(tasks));
+      }
+
+      function renderTasks() {
+        taskList.innerHTML = "";
+        taskCount.textContent = String(tasks.length);
+
+        if (tasks.length === 0) {
+          taskList.innerHTML = '<p class="rounded-lg border border-dashed border-app-line p-4 text-sm text-app-muted">暂无任务，添加一条试试看。</p>';
+          return;
+        }
+
+        tasks.forEach((task, index) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "flex w-full items-center justify-between rounded-lg border border-app-line bg-white/[0.03] px-3 py-2 text-left text-sm transition hover:border-app-accent";
+          item.innerHTML = `<span>${task}</span><span class="text-xs text-app-muted">完成</span>`;
+          item.addEventListener("click", () => {
+            tasks = tasks.filter((_, taskIndex) => taskIndex !== index);
+            saveTasks();
+            renderTasks();
+          });
+          taskList.appendChild(item);
+        });
+      }
+
+      taskForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const value = taskInput.value.trim();
+        if (!value) return;
+
+        tasks = [value, ...tasks];
+        taskInput.value = "";
+        saveTasks();
+        renderTasks();
+      });
+
+      resetButton.addEventListener("click", () => {
+        tasks = [];
+        saveTasks();
+        renderTasks();
+      });
+
+      renderTasks();
+    </script>
+  </body>
+</html>

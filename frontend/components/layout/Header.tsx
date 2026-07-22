@@ -31,7 +31,7 @@ export function Header({ userEmail }: HeaderProps) {
 
   return (
     <header className="border-b border-border/80 bg-background/95 backdrop-blur">
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
+      <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6">
         <Link href="/" className="flex items-center gap-2 text-sm font-semibold">
           <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Sparkles className="h-4 w-4" />

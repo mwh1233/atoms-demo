@@ -34,10 +34,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
     }
 
     return (
-      <div className="border-t border-border bg-card pt-4">
-        <div className="flex gap-3">
+      <div className="border-t border-border bg-card/95 p-4">
+        <div className="flex min-w-0 gap-2">
           <Textarea
-            className="min-h-12 resize-none"
+            className="min-h-12 min-w-0 resize-none text-sm"
             disabled={disabled}
             placeholder={
               placeholder || (disabled ? "Generating, please wait..." : "Describe what to change...")
@@ -47,9 +47,13 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
           />
-          <Button className="h-12 shrink-0" disabled={disabled || !value.trim()} onClick={submit}>
-            <Send className="mr-2 h-4 w-4" />
-            Send
+          <Button
+            aria-label="Send"
+            className="h-12 w-12 shrink-0 px-0"
+            disabled={disabled || !value.trim()}
+            onClick={submit}
+          >
+            <Send className="h-4 w-4" />
           </Button>
         </div>
       </div>

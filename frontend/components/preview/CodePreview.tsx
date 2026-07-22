@@ -10,16 +10,43 @@ export type PreviewStatus = "loading" | "success" | "error";
 type CodePreviewProps = {
   code: string;
   device: PreviewDevice;
+  deployUrl?: string | null;
+  refreshKey?: number;
   onStatusChange?: (status: PreviewStatus) => void;
 };
 
-export function CodePreview({ code, device, onStatusChange }: CodePreviewProps) {
+export function CodePreview({
+  code,
+  device,
+  deployUrl,
+  refreshKey = 0,
+  onStatusChange
+}: CodePreviewProps) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [status, setStatus] = useState<PreviewStatus>("loading");
   const previousUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (deployUrl) {
+      setStatus("loading");
+      onStatusChange?.("loading");
+      setPreviewUrl(`${deployUrl}${deployUrl.includes("?") ? "&" : "?"}r=${Date.now()}`);
+
+      if (previousUrlRef.current) {
+        URL.revokeObjectURL(previousUrlRef.current);
+        previousUrlRef.current = null;
+      }
+      return;
+    }
+
+    if (!code.trim()) {
+      setStatus("error");
+      onStatusChange?.("error");
+      setPreviewUrl("");
+      return;
+    }
+
     setStatus("loading");
     onStatusChange?.("loading");
 
@@ -35,7 +62,7 @@ export function CodePreview({ code, device, onStatusChange }: CodePreviewProps) 
     return () => {
       URL.revokeObjectURL(nextUrl);
     };
-  }, [code, reloadKey, onStatusChange]);
+  }, [code, deployUrl, reloadKey, refreshKey, onStatusChange]);
 
   function handleLoad() {
     setStatus("success");
@@ -49,7 +76,7 @@ export function CodePreview({ code, device, onStatusChange }: CodePreviewProps) 
 
   return (
     <DeviceFrame device={device}>
-      <div className="relative h-full min-h-[520px] bg-[#0f172a]">
+      <div className="relative h-full min-h-0 bg-[#0f172a]">
         {status === "loading" ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0f172a] text-slate-200">
             <div className="flex flex-col items-center gap-4 px-6 text-center">
@@ -78,8 +105,8 @@ export function CodePreview({ code, device, onStatusChange }: CodePreviewProps) 
         {previewUrl ? (
           <iframe
             key={previewUrl}
-            className="h-full min-h-[520px] w-full bg-[#0f172a]"
-            sandbox="allow-scripts allow-forms"
+            className="h-full w-full bg-[#0f172a]"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
             src={previewUrl}
             title="代码预览"
             onError={handleError}

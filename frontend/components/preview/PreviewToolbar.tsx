@@ -5,6 +5,7 @@ import {
   ExternalLink,
   Maximize2,
   Monitor,
+  RotateCcw,
   Smartphone,
   Tablet
 } from "lucide-react";
@@ -16,10 +17,12 @@ import type { PreviewStatus } from "@/components/preview/CodePreview";
 type PreviewToolbarProps = {
   device: PreviewDevice;
   onDeviceChange: (device: PreviewDevice) => void;
+  onRefresh?: () => void;
   onDownload: () => void;
   onOpenNewTab: () => void;
   onFullscreen: () => void;
   status: PreviewStatus;
+  compact?: boolean;
 };
 
 const devices = [
@@ -43,13 +46,20 @@ const statusClasses: Record<PreviewStatus, string> = {
 export function PreviewToolbar({
   device,
   onDeviceChange,
+  onRefresh,
   onDownload,
   onOpenNewTab,
   onFullscreen,
-  status
+  status,
+  compact = false
 }: PreviewToolbarProps) {
   return (
-    <div className="flex flex-col gap-3 border-b border-border bg-secondary/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      className={cn(
+        "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
+        compact ? "py-2" : "border-b border-border bg-secondary/60 p-3"
+      )}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-md border border-border bg-background p-1">
           {devices.map((item) => (
@@ -72,6 +82,12 @@ export function PreviewToolbar({
       </div>
 
       <div className="flex items-center gap-2">
+        {onRefresh ? (
+          <Button size="sm" type="button" variant="outline" onClick={onRefresh}>
+            <RotateCcw className="h-4 w-4" />
+            刷新
+          </Button>
+        ) : null}
         <Button size="sm" type="button" variant="outline" onClick={onOpenNewTab}>
           <ExternalLink className="h-4 w-4" />
           新窗口
