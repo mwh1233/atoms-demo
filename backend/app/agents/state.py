@@ -17,6 +17,9 @@ class AgentState(TypedDict):
     features_list: list[dict]
     confirmed_features: list[dict]
     deploy_url: Optional[str]
+    build_attempts: int
+    build_error: str
+    build_success: bool
     current_step: str
     status: str
     error_message: Optional[str]

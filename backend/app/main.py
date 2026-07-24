@@ -3,6 +3,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.preview import router as preview_router
 from app.api.tasks import router as tasks_router
 from app.config import settings
 from app.services.task_manager import task_manager
@@ -25,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(tasks_router, prefix="/api")
+app.include_router(preview_router, prefix="/api")
 
 
 @app.get("/health")

@@ -17,6 +17,8 @@ function getPreviewCode(
   fallbackCode: string,
   files: Record<string, string>
 ) {
+  // 优先用 AI 生成的 preview.html（单文件CDN版本，即时预览，最可靠）
+  if (files["preview.html"]) return files["preview.html"];
   return files["index.html"] || files["frontend/index.html"] || fallbackCode;
 }
 
@@ -38,6 +40,10 @@ export function ProjectPreviewDemo({
     () => getPreviewCode(code, localFiles),
     [code, localFiles]
   );
+
+  // 如果有 preview.html（AI生成的单文件预览），优先用它做Blob预览，不用deployUrl
+  const hasPreviewHtml = Boolean(localFiles["preview.html"]);
+  const effectiveDeployUrl = hasPreviewHtml ? null : deployUrl;
 
   useEffect(() => {
     setLocalFiles(generatedFiles);
@@ -98,7 +104,7 @@ export function ProjectPreviewDemo({
         {activeTab === "preview" ? (
           <CodePreview
             code={previewCode}
-            deployUrl={deployUrl}
+            deployUrl={effectiveDeployUrl}
             device={device}
             refreshKey={refreshKey}
             onStatusChange={setStatus}

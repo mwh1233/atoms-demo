@@ -9,3 +9,4 @@ langchain-openai
 openai
 supabase
 python-multipart
+httpx

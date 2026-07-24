@@ -5,7 +5,12 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Dict, Optional, Set
 
-from app.agents.nodes import analyze_node, code_node, deploy_node, design_node
+from app.agents.nodes import (
+    analyze_node,
+    code_node,
+    code_review_node,
+    design_node,
+)
 from app.agents.state import AgentState
 from app.db.supabase_client import supabase
 from app.services.template_service import template_service
@@ -15,16 +20,18 @@ NODE_TO_STEP = {
     "analyze": "analyzing",
     "design": "designing",
     "code": "coding",
+    "code_review": "reviewing",
+    "build_fix": "building",
     "deploy": "deploying",
 }
 
-STEP_ORDER = ["analyzing", "designing", "coding", "deploying"]
+STEP_ORDER = ["analyzing", "designing", "coding", "reviewing"]
 
 STEP_MESSAGES = {
     "analyzing": "Analyzing requirements",
     "designing": "Designing solution",
     "coding": "Generating code",
-    "deploying": "Deploying project",
+    "reviewing": "Reviewing code",
 }
 
 WAITING_FOR_FEATURES_STATUS = "awaiting_features_confirmation"
@@ -33,21 +40,21 @@ STEP_RESULT_FIELDS = {
     "analyzing": ("analysis_result",),
     "designing": ("architecture_doc", "design_result", "file_tree_plan"),
     "coding": ("generated_code", "generated_files"),
-    "deploying": ("deploy_url",),
+    "reviewing": ("generated_files",),
 }
 
 STEP_MESSAGE_TYPES = {
     "analyzing": "analysis",
     "designing": "design",
     "coding": "code",
-    "deploying": "system",
+    "reviewing": "system",
 }
 
 STEP_NODES: dict[str, Callable[[AgentState], object]] = {
     "analyzing": analyze_node,
     "designing": design_node,
     "coding": code_node,
-    "deploying": deploy_node,
+    "reviewing": code_review_node,
 }
 
 
@@ -291,6 +298,29 @@ class TaskManager:
 
         return True
 
+    async def retry_project(self, project_id: str, user_id: str) -> bool:
+        """重试失败的项目，重置状态从头开始生成"""
+        project = await self._get_project_for_user(project_id, user_id)
+        if not project or project.get("status") != "failed":
+            return False
+
+        # 重置项目状态
+        await self._update_project(
+            project_id,
+            {
+                "status": "pending",
+                "current_step": "analyzing",
+                "error_message": None,
+            },
+        )
+
+        # 重新加入运行队列
+        if project_id not in self._running_projects:
+            self._running_projects.add(project_id)
+            self._project_start_times[project_id] = time.monotonic()
+            asyncio.create_task(self.run_project(project_id))
+
+        # 广播重试事件
         await self._broadcast(
             project_id,
             {
@@ -299,10 +329,12 @@ class TaskManager:
                     "taskId": self._task_id_for_project(project_id),
                     "projectId": project_id,
                     "status": "pending",
-                    "currentStep": "pending",
+                    "currentStep": "analyzing",
                 },
             },
         )
+
+        return True
 
     async def confirm_project_features(
         self,
@@ -460,6 +492,8 @@ class TaskManager:
                     "data": {
                         "code": state["generated_code"],
                         "deployUrl": state["deploy_url"],
+                        "generatedFiles": state.get("generated_files"),
+                        "templateId": state.get("template_id"),
                     },
                 }
             )
@@ -667,6 +701,10 @@ class TaskManager:
             result = node_update.get(result_field)
             if isinstance(result, str) and result:
                 return result
+            if isinstance(result, (dict, list)) and result:
+                return f"{step} completed"
+            if isinstance(result, bool):
+                return f"{step} {'succeeded' if result else 'failed'}"
         return ""
 
     def _step_result_from_state(self, step: str, state: AgentState) -> str:
@@ -674,6 +712,10 @@ class TaskManager:
             result = state.get(result_field)
             if isinstance(result, str) and result:
                 return result
+            if isinstance(result, (dict, list)) and result:
+                return f"{step} completed"
+            if isinstance(result, bool):
+                return f"{step} {'succeeded' if result else 'failed'}"
         return ""
 
     def _project_values_from_node_update(self, step: str, node_update: dict) -> dict:
@@ -720,6 +762,9 @@ class TaskManager:
             "features_list": project.get("features_list") or [],
             "confirmed_features": project.get("confirmed_features") or [],
             "deploy_url": project.get("deploy_url") or project.get("deployed_url"),
+            "build_attempts": 0,
+            "build_error": "",
+            "build_success": False,
             "current_step": project.get("current_step")
             or (
                 "completed"

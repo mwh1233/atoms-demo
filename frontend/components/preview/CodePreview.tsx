@@ -28,16 +28,34 @@ export function CodePreview({
   const previousUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
+    let nextUrl: string | null = null;
+
+    const replacePreviewUrl = (url: string) => {
+      if (previousUrlRef.current) {
+        URL.revokeObjectURL(previousUrlRef.current);
+      }
+      previousUrlRef.current = url;
+      setPreviewUrl(url);
+    };
+
     if (deployUrl) {
       setStatus("loading");
       onStatusChange?.("loading");
-      setPreviewUrl(`${deployUrl}${deployUrl.includes("?") ? "&" : "?"}r=${Date.now()}`);
-
       if (previousUrlRef.current) {
         URL.revokeObjectURL(previousUrlRef.current);
         previousUrlRef.current = null;
       }
-      return;
+      const agentBaseUrl = (process.env.NEXT_PUBLIC_AGENT_API_URL || "")
+        .replace(/\/+$/, "")
+        .replace(/\/api$/, "");
+      const resolvedUrl =
+        deployUrl.startsWith("/api/") && agentBaseUrl ? `${agentBaseUrl}${deployUrl}` : deployUrl;
+      nextUrl = `${resolvedUrl}${resolvedUrl.includes("?") ? "&" : "?"}r=${Date.now()}`;
+      setPreviewUrl(nextUrl);
+
+      return () => {
+        nextUrl = null;
+      };
     }
 
     if (!code.trim()) {
@@ -51,16 +69,16 @@ export function CodePreview({
     onStatusChange?.("loading");
 
     const blob = new Blob([code], { type: "text/html" });
-    const nextUrl = URL.createObjectURL(blob);
-    setPreviewUrl(nextUrl);
-
-    if (previousUrlRef.current) {
-      URL.revokeObjectURL(previousUrlRef.current);
-    }
-    previousUrlRef.current = nextUrl;
+    nextUrl = URL.createObjectURL(blob);
+    replacePreviewUrl(nextUrl);
 
     return () => {
-      URL.revokeObjectURL(nextUrl);
+      if (nextUrl) {
+        URL.revokeObjectURL(nextUrl);
+        if (previousUrlRef.current === nextUrl) {
+          previousUrlRef.current = null;
+        }
+      }
     };
   }, [code, deployUrl, reloadKey, refreshKey, onStatusChange]);
 

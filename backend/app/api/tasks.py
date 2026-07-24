@@ -132,6 +132,22 @@ async def iterate_project_task(project_id: str, request: IterateTaskRequest):
     return {"projectId": project_id, "status": "generating"}
 
 
+@router.post("/project/{project_id}/retry")
+async def retry_project_task(project_id: str, request: ProjectActionRequest):
+    """重试失败的项目，重置状态重新开始生成"""
+    if not await task_manager.user_can_access_project(project_id, request.userId):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    queued = await task_manager.retry_project(project_id, request.userId)
+    if not queued:
+        raise HTTPException(
+            status_code=409,
+            detail="Project is not in failed state",
+        )
+
+    return {"projectId": project_id, "status": "generating"}
+
+
 @router.get("/{task_id}")
 async def get_task(task_id: str):
     raise HTTPException(

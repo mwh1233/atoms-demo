@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { Header } from "@/components/layout/Header";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -16,10 +16,7 @@ export default async function DashboardLayout({
     redirect("/auth");
   }
 
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const { user } = await getCurrentUser();
 
   if (!user) {
     redirect("/auth");

@@ -8,7 +8,13 @@ import { ProjectPreviewDemo } from "@/components/preview/ProjectPreviewDemo";
 import { Button } from "@/components/ui/button";
 import type { Feature, Message, Project } from "@/lib/types";
 
-type WorkflowStep = "analyzing" | "designing" | "coding" | "deploying";
+type WorkflowStep =
+  | "analyzing"
+  | "designing"
+  | "coding"
+  | "reviewing"
+  | "building"
+  | "deploying";
 type AgentStep = "pending" | WorkflowStep | "completed";
 
 type ProjectWorkspaceProps = {
@@ -61,6 +67,8 @@ const stepIndex: Record<WorkflowStep, number> = {
   analyzing: 0,
   designing: 1,
   coding: 2,
+  reviewing: 2,
+  building: 3,
   deploying: 3
 };
 
@@ -68,6 +76,8 @@ const messageStep: Record<WorkflowStep, Message["step"]> = {
   analyzing: "analysis",
   designing: "design",
   coding: "code",
+  reviewing: "system",
+  building: "system",
   deploying: "system"
 };
 
@@ -195,6 +205,7 @@ export function ProjectWorkspace({
   const [errorMessage, setErrorMessage] = useState(project.error_message || "");
   const [isConfirming, setIsConfirming] = useState(false);
   const [isConfirmingFeatures, setIsConfirmingFeatures] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [features, setFeatures] = useState<Feature[]>(project.features_list || []);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<Set<string>>(
     () =>
@@ -547,6 +558,41 @@ export function ProjectWorkspace({
     });
   }
 
+  async function handleRetry() {
+    if (!agentBaseUrl || isRetrying) {
+      return;
+    }
+
+    setErrorMessage("");
+    setIsRetrying(true);
+    reconnectAttemptedRef.current = false;
+
+    try {
+      const response = await fetch(`${agentBaseUrl}/tasks/project/${project.id}/retry`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ userId })
+      });
+
+      if (!response.ok) {
+        throw new Error(`重试失败：${response.status}`);
+      }
+
+      setProjectStatus("generating");
+      setCurrentStep(0);
+      appendAssistantMessage("正在重试生成...", "system", false);
+      connectProjectStream();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "重试失败";
+      setErrorMessage(message);
+      appendAssistantMessage(message, "system", false);
+    } finally {
+      setIsRetrying(false);
+    }
+  }
+
   function promptForIterationInput() {
     appendAssistantMessage(
       "请描述你想要修改的内容，发送后开始新一轮迭代生成",
@@ -803,6 +849,9 @@ export function ProjectWorkspace({
         <MessageInput
           disabled={isInputDisabled}
           onSend={handleSend}
+          onRetry={handleRetry}
+          showRetry={projectStatus === "failed"}
+          isRetrying={isRetrying}
           placeholder={
             isAwaitingConfirmation
               ? "Describe the changes you want for the next iteration..."

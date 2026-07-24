@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { DashboardClient } from "@/components/dashboard/DashboardClient";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/server";
 import type { Project } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,15 +13,17 @@ export default async function DashboardPage() {
     redirect("/auth");
   }
 
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const { user, supabase } = await getCurrentUser();
 
+  if (!user) {
+    redirect("/auth");
+  }
+
+  // 并行查询项目列表（getUser已经在layout里调用过，cache会直接返回结果）
   const { data: projects } = await supabase
     .from("projects")
     .select("*")
-    .eq("user_id", user?.id)
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
   return <DashboardClient projects={(projects ?? []) as Project[]} />;

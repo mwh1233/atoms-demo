@@ -1,18 +1,21 @@
 "use client";
 
 import { forwardRef, useState, type KeyboardEvent } from "react";
-import { Send } from "lucide-react";
+import { Send, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 type MessageInputProps = {
   onSend: (content: string) => void;
+  onRetry?: () => void;
   disabled?: boolean;
+  showRetry?: boolean;
+  isRetrying?: boolean;
   placeholder?: string;
 };
 
 export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
-  function MessageInput({ onSend, disabled = false, placeholder }, ref) {
+  function MessageInput({ onSend, onRetry, disabled = false, showRetry = false, isRetrying = false, placeholder }, ref) {
     const [value, setValue] = useState("");
 
     function submit() {
@@ -47,6 +50,18 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
           />
+          {showRetry && onRetry ? (
+            <Button
+              aria-label="Retry"
+              className="h-12 w-12 shrink-0 px-0"
+              variant="secondary"
+              disabled={isRetrying}
+              onClick={onRetry}
+              title="重试生成"
+            >
+              <RotateCcw className={`h-4 w-4 ${isRetrying ? "animate-spin" : ""}`} />
+            </Button>
+          ) : null}
           <Button
             aria-label="Send"
             className="h-12 w-12 shrink-0 px-0"

@@ -20,21 +20,86 @@ type AuthMode = "login" | "register";
 export default function AuthPage() {
   const router = useRouter();
   const [mode, setMode] = useState<AuthMode>("login");
-  const [email, setEmail] = useState("");
+  const [account, setAccount] = useState(""); // 登录用：邮箱或手机号
+  const [email, setEmail] = useState("");    // 注册用：邮箱
+  const [phone, setPhone] = useState("");    // 注册用：手机号
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+
+    if (mode === "register") {
+      // 注册校验
+      if (!email.includes("@")) {
+        setError("请输入正确的邮箱地址");
+        return;
+      }
+      if (!/^1[3-9]\d{9}$/.test(phone)) {
+        setError("请输入正确的11位手机号");
+        return;
+      }
+      if (password.length < 6) {
+        setError("密码至少6位");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("两次输入的密码不一致");
+        return;
+      }
+    } else {
+      // 登录校验：账号可以是邮箱或手机号
+      const isEmail = account.includes("@");
+      const isPhone = /^1[3-9]\d{9}$/.test(account);
+      if (!isEmail && !isPhone) {
+        setError("请输入正确的邮箱或手机号");
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     const supabase = createSupabaseBrowserClient();
-    const result =
-      mode === "login"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+    let result;
+
+    if (mode === "login") {
+      // 登录：自动识别邮箱或手机号
+      const isEmail = account.includes("@");
+      let loginEmail = account;
+      if (!isEmail) {
+        // 手机号登录：从本地映射找对应邮箱（Demo方案，同一浏览器注册可用）
+        try {
+          const phoneMap = JSON.parse(localStorage.getItem("atoms_phone_map") || "{}");
+          loginEmail = phoneMap[account] || `${account}@atoms.demo`;
+        } catch {
+          loginEmail = `${account}@atoms.demo`;
+        }
+      }
+      result = await supabase.auth.signInWithPassword({ email: loginEmail, password });
+    } else {
+      // 注册：用邮箱注册，手机号存在用户元数据
+      result = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            phone: phone,
+          }
+        }
+      });
+
+      // 注册成功后保存手机号->邮箱映射，支持手机号登录（Demo方案）
+      if (!result.error && result.data.user) {
+        try {
+          const phoneMap = JSON.parse(localStorage.getItem("atoms_phone_map") || "{}");
+          phoneMap[phone] = email;
+          localStorage.setItem("atoms_phone_map", JSON.stringify(phoneMap));
+        } catch {}
+      }
+    }
 
     setIsSubmitting(false);
 
@@ -79,128 +144,232 @@ export default function AuthPage() {
   }
 
   return (
-    <section className="grid min-h-[calc(100vh-9rem)] items-center gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)]">
-      <Card className="border-border/80 bg-card/90 shadow-xl shadow-black/20">
-        <CardHeader>
-          <CardTitle className="text-2xl">
-            {mode === "login" ? "登录 Atoms" : "创建 Atoms 账号"}
+    <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4">
+      {/* 背景装饰 */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 h-80 w-80 rounded-full bg-blue-500/10 blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-purple-500/10 blur-3xl" />
+      </div>
+
+      <Card className="relative w-full max-w-md border-border/50 bg-card/80 backdrop-blur-xl shadow-2xl shadow-black/5">
+        <CardHeader className="text-center pb-2">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg shadow-blue-500/20">
+            <Sparkles className="h-7 w-7 text-white" />
+          </div>
+          <CardTitle className="text-2xl font-bold">
+            {mode === "login" ? "欢迎回来" : "创建账号"}
           </CardTitle>
-          <CardDescription>
-            使用邮箱和密码进入你的项目工作台。
+          <CardDescription className="text-sm">
+            {mode === "login" ? "登录进入你的AI项目工作台" : "注册开始使用AI生成全栈应用"}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Tabs value={mode} onValueChange={(value) => setMode(value as AuthMode)}>
-            <TabsList className="grid w-full grid-cols-2">
+        <CardContent className="pt-4">
+          <Tabs value={mode} onValueChange={(value) => {
+            setMode(value as AuthMode);
+            setError("");
+          }}>
+            <TabsList className="grid w-full grid-cols-2 mb-6">
               <TabsTrigger value="login">登录</TabsTrigger>
               <TabsTrigger value="register">注册</TabsTrigger>
             </TabsList>
-            <TabsContent value="login">
-              <AuthForm
-                buttonText="登录"
-                email={email}
+            <TabsContent value="login" className="mt-0">
+              <LoginForm
+                account={account}
                 error={error}
                 isSubmitting={isSubmitting}
                 password={password}
-                setEmail={setEmail}
+                setAccount={setAccount}
                 setPassword={setPassword}
                 onSubmit={handleSubmit}
               />
             </TabsContent>
-            <TabsContent value="register">
-              <AuthForm
-                buttonText="注册"
+            <TabsContent value="register" className="mt-0">
+              <RegisterForm
                 email={email}
+                phone={phone}
+                password={password}
+                confirmPassword={confirmPassword}
                 error={error}
                 isSubmitting={isSubmitting}
-                password={password}
                 setEmail={setEmail}
+                setPhone={setPhone}
                 setPassword={setPassword}
+                setConfirmPassword={setConfirmPassword}
                 onSubmit={handleSubmit}
               />
             </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
-
-      <div className="space-y-6 rounded-lg border border-border/70 bg-secondary/20 p-8">
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Sparkles className="h-6 w-6" />
-        </div>
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">Atoms</p>
-          <h1 className="max-w-xl text-4xl font-semibold tracking-normal">
-            从一句需求开始，生成、预览并部署你的前端项目。
-          </h1>
-          <p className="max-w-lg text-muted-foreground">
-            登录后进入工作台，继续管理项目、查看生成进度和访问预览页面。
-          </p>
-        </div>
-      </div>
-    </section>
+    </div>
   );
 }
 
-type AuthFormProps = {
-  buttonText: string;
-  email: string;
+type LoginFormProps = {
+  account: string;
   error: string;
   isSubmitting: boolean;
   password: string;
-  setEmail: (value: string) => void;
+  setAccount: (value: string) => void;
   setPassword: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
 
-function AuthForm({
-  buttonText,
-  email,
+function LoginForm({
+  account,
   error,
   isSubmitting,
   password,
-  setEmail,
+  setAccount,
   setPassword,
   onSubmit
-}: AuthFormProps) {
+}: LoginFormProps) {
   return (
-    <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+    <form className="space-y-4" onSubmit={onSubmit}>
       <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor={`${buttonText}-email`}>
-          邮箱
+        <label className="text-sm font-medium text-foreground/90" htmlFor="login-account">
+          邮箱/手机号
         </label>
         <Input
-          id={`${buttonText}-email`}
-          autoComplete="email"
-          inputMode="email"
-          placeholder="you@example.com"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          id="login-account"
+          autoComplete="username"
+          placeholder="请输入邮箱或手机号"
+          type="text"
+          value={account}
+          onChange={(event) => setAccount(event.target.value.trim())}
+          className="h-11"
           required
         />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor={`${buttonText}-password`}>
+        <label className="text-sm font-medium text-foreground/90" htmlFor="login-password">
           密码
         </label>
         <Input
-          id={`${buttonText}-password`}
-          autoComplete={buttonText === "登录" ? "current-password" : "new-password"}
+          id="login-password"
+          autoComplete="current-password"
           minLength={6}
           placeholder="至少 6 位密码"
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
+          className="h-11"
           required
         />
       </div>
       {error ? (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive-foreground">
+        <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-sm text-red-600 dark:text-red-400">
           {error}
         </p>
       ) : null}
-      <Button className="w-full" type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "处理中..." : buttonText}
+      <Button className="w-full h-11 text-base font-medium mt-2" type="submit" disabled={isSubmitting}>
+        {isSubmitting ? "登录中..." : "登录"}
+      </Button>
+    </form>
+  );
+}
+
+type RegisterFormProps = {
+  email: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
+  error: string;
+  isSubmitting: boolean;
+  setEmail: (value: string) => void;
+  setPhone: (value: string) => void;
+  setPassword: (value: string) => void;
+  setConfirmPassword: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+};
+
+function RegisterForm({
+  email,
+  phone,
+  password,
+  confirmPassword,
+  error,
+  isSubmitting,
+  setEmail,
+  setPhone,
+  setPassword,
+  setConfirmPassword,
+  onSubmit
+}: RegisterFormProps) {
+  return (
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-foreground/90" htmlFor="register-email">
+          邮箱
+        </label>
+        <Input
+          id="register-email"
+          autoComplete="email"
+          inputMode="email"
+          placeholder="请输入邮箱地址"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value.trim())}
+          className="h-11"
+          required
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-foreground/90" htmlFor="register-phone">
+          手机号
+        </label>
+        <Input
+          id="register-phone"
+          autoComplete="tel"
+          inputMode="numeric"
+          placeholder="请输入11位手机号"
+          type="tel"
+          maxLength={11}
+          value={phone}
+          onChange={(event) => setPhone(event.target.value.replace(/\D/g, ""))}
+          className="h-11"
+          required
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-foreground/90" htmlFor="register-password">
+          密码
+        </label>
+        <Input
+          id="register-password"
+          autoComplete="new-password"
+          minLength={6}
+          placeholder="至少 6 位密码"
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          className="h-11"
+          required
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-foreground/90" htmlFor="register-confirm-password">
+          确认密码
+        </label>
+        <Input
+          id="register-confirm-password"
+          autoComplete="new-password"
+          minLength={6}
+          placeholder="再次输入密码"
+          type="password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          className="h-11"
+          required
+        />
+      </div>
+      {error ? (
+        <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      ) : null}
+      <Button className="w-full h-11 text-base font-medium mt-2" type="submit" disabled={isSubmitting}>
+        {isSubmitting ? "注册中..." : "注册"}
       </Button>
     </form>
   );

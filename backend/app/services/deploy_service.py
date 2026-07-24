@@ -4,26 +4,22 @@ import os
 import re
 import shutil
 import subprocess
-import storage3
-from inspect import signature
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
+
 from app.db.supabase_client import supabase
 
-
-print(f"[storage3] version: {getattr(storage3, '__version__', 'unknown')}")
-try:
-    from storage3._sync.file_api import SyncBucketActionsMixin
-
-    print(f"[storage3] upload signature: {signature(SyncBucketActionsMixin.upload)}")
-except Exception as exc:
-    print(f"[storage3] upload signature unavailable: {type(exc).__name__}: {exc}")
 
 DEPLOY_BUCKET = "deployed-projects"
 FULLSTACK_TEMPLATES = {"fullstack-agent", "fullstack-shadcn"}
 BUILD_TIMEOUT_SECONDS = 120
 TEMP_PROJECT_ROOT = Path("temp_projects")
+
+
+def _preview_url(project_id: str, file_path: str = "index.html") -> str:
+    return f"http://localhost:8000/api/preview/{project_id}/{file_path}"
 
 
 async def deploy_project(
@@ -74,7 +70,10 @@ async def _deploy_fullstack_mock(project_id: str, generated_files: dict[str, str
         )
 
     frontend_files = _extract_frontend_files(generated_files)
-    print(f"[deploy] frontend files count: {len(frontend_files)}")
+    print(f"[DEPLOY] frontend files count: {len(frontend_files)}")
+    print(f"[DEPLOY] frontend file keys: {list(frontend_files.keys())[:20]}")
+    index_content = frontend_files.get("src/pages/Index.tsx", "NOT FOUND")
+    print(f"[DEPLOY] Index.tsx preview: {index_content[:300]}")
     if not frontend_files:
         print("[deploy] fullstack mock build skipped: no frontend files")
         return await _deploy_fullstack_fallback(
@@ -91,6 +90,15 @@ async def _deploy_fullstack_mock(project_id: str, generated_files: dict[str, str
         _write_project_files(temp_dir, frontend_files)
         _inject_mock_script(temp_dir / "index.html")
         _force_vite_relative_base(temp_dir / "vite.config.ts")
+
+        # Debug: verify index.html after injection
+        index_after = (temp_dir / "index.html").read_text(encoding="utf-8")
+        print(f"[deploy] index.html after mock injection ({len(index_after)} chars):")
+        print(index_after[:800])
+
+        # Debug: verify vite.config.ts after patching
+        vite_config = (temp_dir / "vite.config.ts").read_text(encoding="utf-8")
+        print(f"[deploy] vite.config.ts base check: base:'./' present = {'base: ' + chr(39) + './' + chr(39) in vite_config}")
 
         install_command = _npm_command("install")
         print(f"[deploy] running command: {install_command}")
@@ -122,12 +130,25 @@ async def _deploy_fullstack_mock(project_id: str, generated_files: dict[str, str
                 "Build completed but dist directory was not found.",
             )
 
+        # Debug: print dist files and index.html content
+        dist_files = list(dist_dir.rglob("*"))
+        print(f"[deploy] dist files ({len(dist_files)}):")
+        for f in dist_files[:20]:
+            if f.is_file():
+                print(f"  - {f.relative_to(dist_dir)} ({f.stat().st_size} bytes)")
+
+        dist_index = dist_dir / "index.html"
+        if dist_index.exists():
+            dist_html = dist_index.read_text(encoding="utf-8")
+            print(f"[deploy] dist/index.html ({len(dist_html)} chars):")
+            print(dist_html[:1500])
+        else:
+            print("[deploy] WARNING: dist/index.html not found!")
+
         await _upload_directory(project_id, dist_dir)
-        public_url = supabase.storage.from_(DEPLOY_BUCKET).get_public_url(
-            f"projects/{project_id}/index.html"
-        )
-        await _mark_deploy_success(project_id, public_url)
-        return public_url
+        deploy_url = _preview_url(project_id)
+        await _mark_deploy_success(project_id, deploy_url)
+        return deploy_url
     except Exception as exc:
         import traceback
 
@@ -185,56 +206,73 @@ def _write_project_files(root: Path, files: dict[str, str]) -> None:
 def _inject_mock_script(index_path: Path) -> None:
     if not index_path.exists():
         index_path.write_text(
-            '<!doctype html><html><head><title>Preview</title></head><body><div id="root"></div></body></html>',
+            '<!doctype html><html><head><meta charset="utf-8"><title>Preview</title></head><body><div id="root"></div></body></html>',
             encoding="utf-8",
         )
 
     html = index_path.read_text(encoding="utf-8")
-    if "[Mock] intercepted:" in html:
+    if "// [Atoms Mock Guard]" in html:
         return
 
-    mock_script = """<script>
-// Mock Service Worker - intercept API requests and return demo data.
+    guard_script = """<script>
+// [Atoms Mock Guard] Early injection - intercept fetch and catch errors
 (function() {
-  const originalFetch = window.fetch;
+  // 1. Mock fetch - safe defaults for any API call
+  var originalFetch = window.fetch;
   window.fetch = function(url, options) {
-    const target = String(url);
-    if (target.includes('/api/')) {
+    var target = String(url);
+    if (target.indexOf('/api/') !== -1 || target.indexOf(':8000/') !== -1 || target.indexOf(':3000/') !== -1) {
       console.log('[Mock] intercepted:', target);
       return Promise.resolve(new Response(JSON.stringify({
-        code: 0,
-        message: 'mock data',
-        data: mockDataFor(target)
-      }), {
-        headers: { 'Content-Type': 'application/json' }
-      }));
+        code: 0, message: 'mock',
+        data: { list: [], items: [], products: [], records: [], total: 0, user: {}, banners: [], categories: [], config: {} }
+      }), { headers: { 'Content-Type': 'application/json' }, status: 200 }));
     }
     return originalFetch.apply(this, arguments);
   };
 
-  function mockDataFor(url) {
-    if (url.includes('/auth/')) {
-      return { token: 'mock-token', user: { id: 1, name: 'Mock User' } };
-    }
-    if (url.includes('/todos') || url.includes('/items')) {
-      return [{ id: 1, title: '示例数据 1', done: false }, { id: 2, title: '示例数据 2', done: true }];
-    }
-    if (url.includes('/user')) {
-      return { id: 1, name: 'Mock User', email: 'mock@example.com' };
-    }
-    return {};
+  // 2. Global error handler - show error on screen instead of white screen
+  function showError(msg) {
+    var existing = document.getElementById('__atoms_error__');
+    if (existing) return;
+    var div = document.createElement('div');
+    div.id = '__atoms_error__';
+    div.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#fff;padding:40px;font-family:system-ui,sans-serif;z-index:99999;overflow:auto;box-sizing:border-box;';
+    div.innerHTML = '<div style="max-width:800px;margin:0 auto;"><h2 style="color:#ef4444;margin:0 0 16px;font-size:20px;">预览运行时错误</h2><pre style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;color:#991b1b;font-size:13px;white-space:pre-wrap;line-height:1.5;">' + String(msg).replace(/</g,'&lt;') + '</pre><p style="color:#666;margin-top:16px;font-size:14px;">这是运行时错误，不影响代码生成，可以继续迭代修复。</p></div>';
+    document.body.appendChild(div);
   }
+
+  window.addEventListener('error', function(e) {
+    console.error('[Preview Error]', e.error || e.message);
+    showError(e.message + '\\n\\n' + (e.error && e.error.stack ? e.error.stack : ''));
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    console.error('[Preview Unhandled]', e.reason);
+    showError('Unhandled Promise Rejection: ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
+  });
+
+  // 3. Timeout check - if root is empty after 5s, log warning
+  setTimeout(function() {
+    var root = document.getElementById('root');
+    if (root && (!root.hasChildNodes() || root.innerHTML.trim() === '')) {
+      console.warn('[Preview] root is empty after 5s');
+    }
+  }, 5000);
 })();
 </script>"""
-    if "</body>" in html:
-        html = html.replace("</body>", f"{mock_script}\n</body>")
+    # Inject in <head> for earliest execution
+    if "<head>" in html:
+        html = html.replace("<head>", "<head>" + guard_script, 1)
+    elif "<head " in html:
+        html = html.replace("<head ", guard_script + "<head ", 1)
     else:
-        html = f"{html}\n{mock_script}"
+        html = guard_script + html
+
     index_path.write_text(html, encoding="utf-8")
 
 
 def _force_vite_relative_base(config_path: Path) -> None:
-    """Force Vite to emit relative asset paths for Storage subdirectory previews."""
+    """Force relative asset paths and remove atoms platform-only preview plugins."""
     if not config_path.exists():
         return
 
@@ -244,8 +282,12 @@ def _force_vite_relative_base(config_path: Path) -> None:
     else:
         config = config.replace("defineConfig({", "defineConfig({\n  base: './',", 1)
 
+    # Remove atoms platform plugins; atoms() injects the "Not built yet" placeholder.
+    config = config.replace("    atoms(),", "    // atoms(),")
+    config = re.sub(r"\s+viteSourceLocator\(\{[\s\S]*?\}\),", "", config)
+
     config_path.write_text(config, encoding="utf-8")
-    print("[deploy] patched vite.config.ts base to ./")
+    print("[deploy] patched vite.config.ts base and removed atoms preview plugins")
 
 
 async def _run_command(command: tuple[str, ...], cwd: Path) -> subprocess.CompletedProcess:
@@ -257,6 +299,8 @@ async def _run_command(command: tuple[str, ...], cwd: Path) -> subprocess.Comple
             cwd=str(cwd),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=BUILD_TIMEOUT_SECONDS,
         )
 
@@ -311,17 +355,7 @@ async def _upload_directory(project_id: str, directory: Path) -> None:
         if not content_type:
             content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
         file_content = file_path.read_bytes()
-        options = {
-            "content-type": content_type,
-            "cache-control": "no-cache",
-        }
-        print(
-            f"[UPLOAD] path={storage_path}, content_type={content_type}, "
-            f"file_options keys={list(options.keys())}"
-        )
-
-        await _remove_storage_object(storage_path)
-        await _upload_then_update_storage_object(storage_path, file_content, options)
+        await _upload_file_raw(storage_path, file_content, content_type)
 
 
 async def _deploy_fullstack_fallback(project_id: str, message: str) -> str:
@@ -377,21 +411,44 @@ async def _upload_preview_page(
 ) -> str:
     file_path = f"projects/{project_id}/index.html"
     file_content = html_code.encode("utf-8")
-    options = {
-        "content-type": "text/html",
-        "cache-control": "no-cache",
+    await _upload_file_raw(file_path, file_content, "text/html")
+
+    deploy_url = _preview_url(project_id)
+    await _mark_deploy_success(project_id, deploy_url, deploy_status)
+    return deploy_url
+
+
+async def _upload_file_raw(file_path: str, file_content: bytes, content_type: str) -> None:
+    """直接用 HTTP PUT 上传文件，精确控制 Content-Type。"""
+    from app.config import settings
+
+    url = f"{settings.supabase_url}/storage/v1/object/{DEPLOY_BUCKET}/{file_path}"
+    headers = {
+        "apikey": settings.supabase_service_role_key,
+        "Authorization": f"Bearer {settings.supabase_service_role_key}",
+        "x-upsert": "true",
+        "Cache-Control": "no-cache",
     }
-    print(
-        f"[UPLOAD] path={file_path}, content_type=text/html, "
-        f"file_options keys={list(options.keys())}"
-    )
+    filename = Path(file_path).name
 
     await _remove_storage_object(file_path)
-    await _upload_then_update_storage_object(file_path, file_content, options)
 
-    public_url = supabase.storage.from_(DEPLOY_BUCKET).get_public_url(file_path)
-    await _mark_deploy_success(project_id, public_url, deploy_status)
-    return public_url
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post(
+            url,
+            files={"file": (filename, file_content, content_type)},
+            data={"cacheControl": "no-cache"},
+            headers=headers,
+        )
+
+    print(
+        f"[UPLOAD RAW] path={file_path}, method=POST multipart, "
+        f"content_type={content_type}, status={response.status_code}"
+    )
+
+    if response.status_code >= 400:
+        print(f"[UPLOAD RAW ERROR] response body: {response.text}")
+        response.raise_for_status()
 
 
 async def _remove_storage_object(storage_path: str) -> None:
@@ -402,30 +459,6 @@ async def _remove_storage_object(storage_path: str) -> None:
         )
     except Exception:
         pass
-
-
-async def _upload_then_update_storage_object(
-    storage_path: str,
-    file_content: bytes,
-    options: dict[str, str],
-) -> None:
-    bucket = supabase.storage.from_(DEPLOY_BUCKET)
-    await asyncio.to_thread(
-        bucket.upload,
-        storage_path,
-        file_content,
-        options,
-    )
-    print(
-        f"[UPLOAD] update metadata path={storage_path}, "
-        f"file_options keys={list(options.keys())}"
-    )
-    await asyncio.to_thread(
-        bucket.update,
-        storage_path,
-        file_content,
-        options,
-    )
 
 
 async def _mark_deploy_success(

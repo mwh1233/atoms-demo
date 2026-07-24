@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { ProjectWorkspace } from "@/components/project/ProjectWorkspace";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/server";
 import type { Message, Project } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -19,31 +19,33 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     redirect("/auth");
   }
 
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const { user, supabase } = await getCurrentUser();
 
   if (!user) {
     redirect("/auth");
   }
 
-  const { data: project } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("id", params.id)
-    .eq("user_id", user.id)
-    .single();
+  // 并行查询project和messages，节省一半时间
+  const [projectResult, messagesResult] = await Promise.all([
+    supabase
+      .from("projects")
+      .select("*")
+      .eq("id", params.id)
+      .eq("user_id", user.id)
+      .single(),
+    supabase
+      .from("messages")
+      .select("*")
+      .eq("project_id", params.id)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const project = projectResult.data;
+  const messages = messagesResult.data;
 
   if (!project) {
     notFound();
   }
-
-  const { data: messages } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("project_id", params.id)
-    .order("created_at", { ascending: true });
 
   const typedProject = project as Project;
 
