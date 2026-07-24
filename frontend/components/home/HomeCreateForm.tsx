@@ -109,8 +109,12 @@ export function HomeCreateForm({ templates, userId }: HomeCreateFormProps) {
   }
 
   return (
-    <div className="space-y-10">
-      <section id="create" className="grid min-h-[520px] items-center gap-8 py-12 lg:grid-cols-[1.1fr_0.9fr]">
+    <div className="relative space-y-10">
+      {/* 背景装饰 */}
+      <div className="pointer-events-none absolute -top-20 -left-20 h-96 w-96 rounded-full bg-blue-500/5 blur-3xl" />
+      <div className="pointer-events-none absolute top-40 -right-20 h-96 w-96 rounded-full bg-purple-500/5 blur-3xl" />
+
+      <section id="create" className="relative grid min-h-[520px] items-center gap-8 py-12 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-6">
           <p className="text-sm text-muted-foreground">AI 产品生成工作台</p>
           <h1 className="max-w-3xl text-5xl font-semibold tracking-normal">
@@ -119,7 +123,7 @@ export function HomeCreateForm({ templates, userId }: HomeCreateFormProps) {
           <p className="max-w-2xl text-lg text-muted-foreground">
             AI 多智能体团队为你自动构建全栈应用，从需求理解到代码生成与预览，一路推进。
           </p>
-          <div className="rounded-lg border border-border/80 bg-card/80 p-3 shadow-xl shadow-black/20">
+          <div className="rounded-lg border border-border/80 bg-card/80 p-3 shadow-xl shadow-black/5">
             <textarea
               className="min-h-32 w-full resize-none rounded-md border border-input bg-background px-4 py-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
               placeholder="例如：帮我做一个面向独立开发者的 SaaS 收款数据看板..."
@@ -143,13 +147,48 @@ export function HomeCreateForm({ templates, userId }: HomeCreateFormProps) {
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-secondary/30 p-6">
-          <div className="space-y-4">
-            <div className="h-3 w-24 rounded bg-muted" />
-            <div className="h-24 rounded-md border border-border bg-background" />
-            <div className="grid grid-cols-2 gap-3">
-              <div className="h-24 rounded-md border border-border bg-background" />
-              <div className="h-24 rounded-md border border-border bg-background" />
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-2xl shadow-black/10">
+          {/* 浏览器顶栏 */}
+          <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-4 py-3">
+            <div className="flex gap-1.5">
+              <div className="h-3 w-3 rounded-full bg-red-500/80" />
+              <div className="h-3 w-3 rounded-full bg-yellow-500/80" />
+              <div className="h-3 w-3 rounded-full bg-green-500/80" />
+            </div>
+            <div className="ml-4 flex-1 rounded-md bg-background px-3 py-1 text-xs text-muted-foreground">
+              atoms.app/dashboard
+            </div>
+          </div>
+          {/* 预览内容 */}
+          <div className="bg-gradient-to-br from-slate-50 to-blue-50 p-4 dark:from-slate-900 dark:to-slate-800">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="h-6 w-24 rounded bg-blue-500/20" />
+              <div className="flex gap-2">
+                <div className="h-6 w-16 rounded bg-muted" />
+                <div className="h-6 w-16 rounded bg-blue-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="h-20 rounded-lg border border-border bg-white p-3 shadow-sm dark:bg-slate-800">
+                <div className="mb-2 h-3 w-12 rounded bg-muted" />
+                <div className="h-5 w-16 rounded bg-blue-500/30" />
+              </div>
+              <div className="h-20 rounded-lg border border-border bg-white p-3 shadow-sm dark:bg-slate-800">
+                <div className="mb-2 h-3 w-12 rounded bg-muted" />
+                <div className="h-5 w-20 rounded bg-green-500/30" />
+              </div>
+              <div className="h-20 rounded-lg border border-border bg-white p-3 shadow-sm dark:bg-slate-800">
+                <div className="mb-2 h-3 w-12 rounded bg-muted" />
+                <div className="h-5 w-14 rounded bg-purple-500/30" />
+              </div>
+            </div>
+            <div className="mt-3 h-32 rounded-lg border border-border bg-white p-3 shadow-sm dark:bg-slate-800">
+              <div className="mb-2 h-3 w-20 rounded bg-muted" />
+              <div className="space-y-2">
+                <div className="h-2 w-full rounded bg-muted/70" />
+                <div className="h-2 w-5/6 rounded bg-muted/70" />
+                <div className="h-2 w-4/6 rounded bg-muted/70" />
+              </div>
             </div>
           </div>
         </div>

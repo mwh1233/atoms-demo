@@ -50,14 +50,14 @@ export default async function HomePage() {
     const { data } = await supabase
       .from("templates")
       .select("*")
-      .order("sort_order", { ascending: true });
+      .order("created_at", { ascending: true });
     templates = (data ?? []) as Template[];
   } else {
     cookies();
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-background text-foreground">
       <Header userEmail={userEmail} />
       <main className="mx-auto w-full max-w-6xl px-6 pb-16">
         <HomeCreateForm templates={templates} userId={userId} />

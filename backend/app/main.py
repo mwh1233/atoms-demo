@@ -13,13 +13,7 @@ app = FastAPI(title="Atoms Agent Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(
-        {
-            settings.frontend_url,
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        }
-    ),
+    allow_origins=["*"],  # 开发阶段允许所有来源，部署后可收紧
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
