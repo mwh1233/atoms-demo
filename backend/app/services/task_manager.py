@@ -299,18 +299,33 @@ class TaskManager:
         return True
 
     async def retry_project(self, project_id: str, user_id: str) -> bool:
-        """重试失败的项目，重置状态从头开始生成"""
+        """重试项目，支持失败/完成/错误状态重试，正在运行的直接返回成功"""
         project = await self._get_project_for_user(project_id, user_id)
-        if not project or project.get("status") != "failed":
+        if not project:
             return False
 
-        # 重置项目状态
+        # 如果已经在运行中，直接返回成功，不报错
+        if project_id in self._running_projects:
+            return True
+
+        # 正在运行的状态直接返回成功，避免重复点击409
+        running_statuses = {"pending", "generating", "awaiting_features_confirmation", "awaiting_confirmation"}
+        if project.get("status") in running_statuses:
+            return True
+
+        # 重置项目状态，清空之前的生成结果
         await self._update_project(
             project_id,
             {
                 "status": "pending",
                 "current_step": "analyzing",
                 "error_message": None,
+                "generated_code": None,
+                "generated_files": None,
+                "build_success": False,
+                "build_error": None,
+                "analysis_result": None,
+                "design_result": None,
             },
         )
 

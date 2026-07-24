@@ -26,11 +26,13 @@ export default function AuthPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setSuccessMessage("");
 
     if (mode === "register") {
       // 注册校验
@@ -98,6 +100,17 @@ export default function AuthPage() {
           phoneMap[phone] = email;
           localStorage.setItem("atoms_phone_map", JSON.stringify(phoneMap));
         } catch {}
+
+        // 注册成功：显示提示，切换到登录页，清空所有输入框
+        setIsSubmitting(false);
+        setSuccessMessage("注册成功！请输入账号密码登录");
+        setAccount("");
+        setPassword("");
+        setEmail("");
+        setPhone("");
+        setConfirmPassword("");
+        setMode("login");
+        return;
       }
     }
 
@@ -167,15 +180,27 @@ export default function AuthPage() {
           <Tabs value={mode} onValueChange={(value) => {
             setMode(value as AuthMode);
             setError("");
+            setSuccessMessage("");
           }}>
             <TabsList className="grid w-full grid-cols-2 mb-6">
               <TabsTrigger value="login">登录</TabsTrigger>
               <TabsTrigger value="register">注册</TabsTrigger>
             </TabsList>
+
+            {successMessage ? (
+              <p className="rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2.5 text-sm text-green-600 dark:text-green-400 mb-4">
+                {successMessage}
+              </p>
+            ) : null}
+            {error ? (
+              <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-sm text-red-600 dark:text-red-400 mb-4">
+                {error}
+              </p>
+            ) : null}
+
             <TabsContent value="login" className="mt-0">
               <LoginForm
                 account={account}
-                error={error}
                 isSubmitting={isSubmitting}
                 password={password}
                 setAccount={setAccount}
@@ -189,7 +214,6 @@ export default function AuthPage() {
                 phone={phone}
                 password={password}
                 confirmPassword={confirmPassword}
-                error={error}
                 isSubmitting={isSubmitting}
                 setEmail={setEmail}
                 setPhone={setPhone}
@@ -207,7 +231,6 @@ export default function AuthPage() {
 
 type LoginFormProps = {
   account: string;
-  error: string;
   isSubmitting: boolean;
   password: string;
   setAccount: (value: string) => void;
@@ -217,7 +240,6 @@ type LoginFormProps = {
 
 function LoginForm({
   account,
-  error,
   isSubmitting,
   password,
   setAccount,
@@ -257,11 +279,6 @@ function LoginForm({
           required
         />
       </div>
-      {error ? (
-        <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      ) : null}
       <Button className="w-full h-11 text-base font-medium mt-2" type="submit" disabled={isSubmitting}>
         {isSubmitting ? "登录中..." : "登录"}
       </Button>
@@ -274,7 +291,6 @@ type RegisterFormProps = {
   phone: string;
   password: string;
   confirmPassword: string;
-  error: string;
   isSubmitting: boolean;
   setEmail: (value: string) => void;
   setPhone: (value: string) => void;
@@ -288,7 +304,6 @@ function RegisterForm({
   phone,
   password,
   confirmPassword,
-  error,
   isSubmitting,
   setEmail,
   setPhone,
@@ -363,11 +378,6 @@ function RegisterForm({
           required
         />
       </div>
-      {error ? (
-        <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      ) : null}
       <Button className="w-full h-11 text-base font-medium mt-2" type="submit" disabled={isSubmitting}>
         {isSubmitting ? "注册中..." : "注册"}
       </Button>

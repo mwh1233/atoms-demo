@@ -577,7 +577,10 @@ export function ProjectWorkspace({
       });
 
       if (!response.ok) {
-        throw new Error(`重试失败：${response.status}`);
+        // 409说明已经在重试了，直接当成功处理
+        if (response.status !== 409) {
+          throw new Error(`重试失败：${response.status}`);
+        }
       }
 
       setProjectStatus("generating");
@@ -850,7 +853,7 @@ export function ProjectWorkspace({
           disabled={isInputDisabled}
           onSend={handleSend}
           onRetry={handleRetry}
-          showRetry={projectStatus === "failed"}
+          showRetry={projectStatus === "failed" && !isRetrying}
           isRetrying={isRetrying}
           placeholder={
             isAwaitingConfirmation
