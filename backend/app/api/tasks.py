@@ -60,7 +60,14 @@ async def stream_project_task(project_id: str, userId: str):
     if not queue:
         raise HTTPException(status_code=404, detail="Active task not found")
 
-    return EventSourceResponse(_event_generator(queue))
+    return EventSourceResponse(
+        _event_generator(queue),
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 @router.post("/project/{project_id}/confirm")
@@ -165,13 +172,20 @@ async def stream_task(task_id: str, userId: str):
             detail="Task streams are deprecated; use /project/{project_id}/stream",
         )
 
-    return EventSourceResponse(_event_generator(queue))
+    return EventSourceResponse(
+        _event_generator(queue),
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 async def _event_generator(queue: asyncio.Queue):
     while True:
         try:
-            event = await asyncio.wait_for(queue.get(), timeout=30)
+            event = await asyncio.wait_for(queue.get(), timeout=15)
         except asyncio.TimeoutError:
             yield {
                 "event": "ping",

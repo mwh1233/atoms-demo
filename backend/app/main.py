@@ -14,7 +14,7 @@ app = FastAPI(title="Atoms Agent Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 开发阶段允许所有来源，部署后可收紧
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

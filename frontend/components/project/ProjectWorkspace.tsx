@@ -347,7 +347,11 @@ export function ProjectWorkspace({
     const eventSource = new EventSource(streamUrl.toString());
     eventSourceRef.current = eventSource;
     if (onOpen) {
-      eventSource.addEventListener("open", onOpen, { once: true });
+      eventSource.addEventListener("open", () => {
+        // 重连成功重置计数
+        (eventSource as any).__reconnectCount = 0;
+        onOpen();
+      }, { once: true });
     }
     bindStreamEvents(eventSource, connectProjectStream);
     return eventSource;
@@ -442,10 +446,13 @@ export function ProjectWorkspace({
         return;
       }
 
-      if (!reconnectAttemptedRef.current) {
-        reconnectAttemptedRef.current = true;
+      // 最多重连5次，指数退避：1s/2s/4s/8s/16s
+      const reconnectCount = (eventSource as any).__reconnectCount || 0;
+      if (reconnectCount < 5) {
+        (eventSource as any).__reconnectCount = reconnectCount + 1;
         eventSource.close();
-        window.setTimeout(reconnect, 1000);
+        const delay = Math.pow(2, reconnectCount) * 1000;
+        window.setTimeout(reconnect, delay);
         return;
       }
 
