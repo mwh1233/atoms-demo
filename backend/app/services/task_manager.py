@@ -872,162 +872,29 @@ class TaskManager:
     ):
         self._project_start_times[project_id] = time.monotonic()
         try:
-            project = await self._get_project(project_id)
-            if not project:
-                logger.warning("Project %s not found, skipping", project_id)
-                return
-
-            if not is_iteration and project.get("initial_prompt"):
-                await self._insert_user_message_once(
+            # 单个项目生成总超时5分钟，避免无限卡住占线程
+            await asyncio.wait_for(
+                self._run_project_impl(
                     project_id,
-                    project["initial_prompt"],
-                )
-
-            state = self._state_from_project(project)
-            if state_overrides:
-                state.update(state_overrides)
-            state["status"] = "running"
-            state["is_iteration"] = is_iteration
-            state["previous_code"] = previous_code
-            if iteration_prompt:
-                state["user_prompt"] = iteration_prompt
-
-            next_step = "coding" if is_iteration else self._first_incomplete_step(state)
-            if not next_step:
-                await self._safe_update_project(
-                    project_id,
-                    {
-                        "status": "awaiting_confirmation",
-                        "current_step": "completed",
-                        "error_message": None,
-                    },
-                )
-                await self._broadcast(
-                    project_id,
-                    {
-                        "type": "completed",
-                        "data": {
-                            "code": state["generated_code"],
-                            "generatedFiles": state.get("generated_files") or {},
-                            "templateId": state.get("template_id"),
-                            "deployUrl": state["deploy_url"],
-                        },
-                    },
-                )
-                return
-
-            while next_step:
-                state["current_step"] = next_step
-                await asyncio.gather(
-                    self._safe_update_project(
-                        project_id,
-                        {
-                            "status": "generating",
-                            "current_step": next_step,
-                            "error_message": None,
-                        },
-                    ),
-                    self._broadcast_step_start(project_id, next_step),
-                )
-
-                node_update = await self._run_step(next_step, state)
-                frontend_step = self._to_frontend_step(next_step, node_update)
-                step_result = self._step_result(frontend_step, node_update)
-
-                state.update(node_update)
-                state["status"] = node_update.get("status", "running")
-                state["current_step"] = frontend_step
-
-                project_values = {
-                    "status": "generating",
-                    "current_step": frontend_step,
-                }
-                if "features_list" in node_update:
-                    project_values["features_list"] = node_update["features_list"]
-
-                project_values.update(
-                    self._project_values_from_node_update(frontend_step, node_update)
-                )
-
-                await asyncio.gather(
-                    self._safe_update_project(project_id, project_values),
-                    self._broadcast(
-                        project_id,
-                        {
-                            "type": "step_complete",
-                            "data": {
-                                "step": frontend_step,
-                                "result": step_result,
-                                "generatedFiles": state.get("generated_files") or {},
-                                "templateId": state.get("template_id"),
-                            },
-                        },
-                    ),
-                    self._store_step_message(state, frontend_step, step_result),
-                )
-
-                if frontend_step == "analyzing" and not is_iteration:
-                    features_list = state.get("features_list") or []
-                    if features_list:
-                        await self._safe_update_project(
-                            project_id,
-                            {
-                                "status": WAITING_FOR_FEATURES_STATUS,
-                                "current_step": "analyzing",
-                                "features_list": features_list,
-                                "error_message": None,
-                            },
-                        )
-                        await self._broadcast(
-                            project_id,
-                            {
-                                "type": "features_confirmation",
-                                "data": {
-                                    "features": features_list,
-                                },
-                            },
-                        )
-                        return
-
-                    template_values = self._select_template_values(
-                        state["user_prompt"],
-                        [],
-                    )
-                    state.update(template_values)
-                    await self._safe_update_project(
-                        project_id,
-                        {
-                            **template_values,
-                            "current_step": "designing",
-                            "error_message": None,
-                        },
-                    )
-
-                next_step = self._next_step(frontend_step)
-
+                    is_iteration=is_iteration,
+                    iteration_prompt=iteration_prompt,
+                    previous_code=previous_code,
+                    state_overrides=state_overrides,
+                ),
+                timeout=300,
+            )
+        except asyncio.TimeoutError:
+            error_message = "生成超时（超过5分钟），请重试"
+            logger.error("Project %s timed out after 5 minutes", project_id)
             await self._safe_update_project(
                 project_id,
                 {
-                    "status": "awaiting_confirmation",
-                    "generated_code": state["generated_code"],
-                    "generated_files": state.get("generated_files") or {},
+                    "status": "failed",
                     "current_step": "completed",
-                    "error_message": None,
+                    "error_message": error_message,
                 },
             )
-
-            await self._broadcast(
-                project_id,
-                {
-                    "type": "completed",
-                    "data": {
-                        "code": state["generated_code"],
-                        "generatedFiles": state.get("generated_files") or {},
-                        "templateId": state.get("template_id"),
-                        "deployUrl": state["deploy_url"],
-                    },
-                },
-            )
+            await self._broadcast_error(project_id, error_message)
         except Exception as exc:
             error_message = str(exc)
             logger.exception("Project %s failed: %s", project_id, exc)
@@ -1043,6 +910,171 @@ class TaskManager:
         finally:
             self._running_projects.discard(project_id)
             self._project_start_times.pop(project_id, None)
+
+    async def _run_project_impl(
+        self,
+        project_id: str,
+        is_iteration: bool = False,
+        iteration_prompt: Optional[str] = None,
+        previous_code: Optional[str] = None,
+        state_overrides: Optional[dict] = None,
+    ):
+        project = await self._get_project(project_id)
+        if not project:
+            logger.warning("Project %s not found, skipping", project_id)
+            return
+
+        if not is_iteration and project.get("initial_prompt"):
+            await self._insert_user_message_once(
+                project_id,
+                project["initial_prompt"],
+            )
+
+        state = self._state_from_project(project)
+        if state_overrides:
+            state.update(state_overrides)
+        state["status"] = "running"
+        state["is_iteration"] = is_iteration
+        state["previous_code"] = previous_code
+        if iteration_prompt:
+            state["user_prompt"] = iteration_prompt
+
+        next_step = "coding" if is_iteration else self._first_incomplete_step(state)
+        if not next_step:
+            await self._safe_update_project(
+                project_id,
+                {
+                    "status": "awaiting_confirmation",
+                    "current_step": "completed",
+                    "error_message": None,
+                },
+            )
+            await self._broadcast(
+                project_id,
+                {
+                    "type": "completed",
+                    "data": {
+                        "code": state["generated_code"],
+                        "generatedFiles": state.get("generated_files") or {},
+                        "templateId": state.get("template_id"),
+                        "deployUrl": state["deploy_url"],
+                    },
+                },
+            )
+            return
+
+        while next_step:
+            state["current_step"] = next_step
+            await asyncio.gather(
+                self._safe_update_project(
+                    project_id,
+                    {
+                        "status": "generating",
+                        "current_step": next_step,
+                        "error_message": None,
+                    },
+                ),
+                self._broadcast_step_start(project_id, next_step),
+            )
+
+            node_update = await self._run_step(next_step, state)
+            frontend_step = self._to_frontend_step(next_step, node_update)
+            step_result = self._step_result(frontend_step, node_update)
+
+            state.update(node_update)
+            state["status"] = node_update.get("status", "running")
+            state["current_step"] = frontend_step
+
+            project_values = {
+                "status": "generating",
+                "current_step": frontend_step,
+            }
+            if "features_list" in node_update:
+                project_values["features_list"] = node_update["features_list"]
+
+            project_values.update(
+                self._project_values_from_node_update(frontend_step, node_update)
+            )
+
+            await asyncio.gather(
+                self._safe_update_project(project_id, project_values),
+                self._broadcast(
+                    project_id,
+                    {
+                        "type": "step_complete",
+                        "data": {
+                            "step": frontend_step,
+                            "result": step_result,
+                            "generatedFiles": state.get("generated_files") or {},
+                            "templateId": state.get("template_id"),
+                        },
+                    },
+                ),
+                self._store_step_message(state, frontend_step, step_result),
+            )
+
+            if frontend_step == "analyzing" and not is_iteration:
+                features_list = state.get("features_list") or []
+                if features_list:
+                    await self._safe_update_project(
+                        project_id,
+                        {
+                            "status": WAITING_FOR_FEATURES_STATUS,
+                            "current_step": "analyzing",
+                            "features_list": features_list,
+                            "error_message": None,
+                        },
+                    )
+                    await self._broadcast(
+                        project_id,
+                        {
+                            "type": "features_confirmation",
+                            "data": {
+                                "features": features_list,
+                            },
+                        },
+                    )
+                    return
+
+                template_values = self._select_template_values(
+                    state["user_prompt"],
+                    [],
+                )
+                state.update(template_values)
+                await self._safe_update_project(
+                    project_id,
+                    {
+                        **template_values,
+                        "current_step": "designing",
+                        "error_message": None,
+                    },
+                )
+
+            next_step = self._next_step(frontend_step)
+
+        await self._safe_update_project(
+            project_id,
+            {
+                "status": "awaiting_confirmation",
+                "generated_code": state["generated_code"],
+                "generated_files": state.get("generated_files") or {},
+                "current_step": "completed",
+                "error_message": None,
+            },
+        )
+
+        await self._broadcast(
+            project_id,
+            {
+                "type": "completed",
+                "data": {
+                    "code": state["generated_code"],
+                    "generatedFiles": state.get("generated_files") or {},
+                    "templateId": state.get("template_id"),
+                    "deployUrl": state["deploy_url"],
+                },
+            },
+        )
 
 
 task_manager = TaskManager()
