@@ -16,25 +16,37 @@ from app.config import settings
 from app.services.template_service import template_service
 
 
-# DeepSeek client - 用于分析和设计（便宜）
-deepseek_client = OpenAI(
-    api_key=settings.deepseek_api_key,
-    base_url=settings.deepseek_base_url,
-    timeout=120.0,
-    max_retries=3,
-)
+# LLM客户端懒加载：启动时不初始化，第一次调用时再创建，降低启动内存占用
+_deepseek_client = None
+_coder_client = None
 
-# OpenAI-compatible client - 用于代码生成和修复（强模型）
-coder_client = (
-    OpenAI(
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
-        timeout=180.0,  # 代码生成时间长，给3分钟超时
-        max_retries=3,
-    )
-    if settings.openai_api_key
-    else deepseek_client
-)
+
+def get_deepseek_client():
+    global _deepseek_client
+    if _deepseek_client is None:
+        _deepseek_client = OpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+            timeout=120.0,
+            max_retries=3,
+        )
+    return _deepseek_client
+
+
+def get_coder_client():
+    global _coder_client
+    if _coder_client is None:
+        if settings.openai_api_key:
+            _coder_client = OpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url,
+                timeout=180.0,  # 代码生成时间长，给3分钟超时
+                max_retries=3,
+            )
+        else:
+            _coder_client = get_deepseek_client()
+    return _coder_client
+
 
 TokenCallback = Callable[[str, str], None]
 BUILD_FIX_MAX_ATTEMPTS = 3
@@ -48,7 +60,7 @@ def _call_llm(
     stream: bool = False,
     use_coder: bool = False,
 ) -> str:
-    cl = coder_client if use_coder else deepseek_client
+    cl = get_coder_client() if use_coder else get_deepseek_client()
     md = settings.coder_model if use_coder else settings.llm_model
 
     last_error = None
@@ -92,7 +104,7 @@ def _call_llm(
 
 def _call_llm_stream(system_prompt: str, user_content: str, use_coder: bool = False):
     """流式调用 LLM，yield (delta, full_content)。网络中断自动重试。"""
-    cl = coder_client if use_coder else deepseek_client
+    cl = get_coder_client() if use_coder else get_deepseek_client()
     md = settings.coder_model if use_coder else settings.llm_model
 
     full_content = ""

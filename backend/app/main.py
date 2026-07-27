@@ -1,5 +1,6 @@
 
 import asyncio
+import gc
 from concurrent.futures import ThreadPoolExecutor
 import uvicorn
 from fastapi import FastAPI
@@ -42,6 +43,8 @@ async def startup_event():
     # 扩大默认线程池到20，避免线程池耗尽假死
     loop = asyncio.get_running_loop()
     loop.set_default_executor(ThreadPoolExecutor(max_workers=20))
+    # 启动后手动GC，释放不必要的内存
+    gc.collect()
     task_manager.start_polling()
 
 
@@ -51,4 +54,5 @@ if __name__ == "__main__":
         host=settings.host,
         port=settings.port,
         reload=settings.env == "development",
+        workers=1,  # 单工作进程，减少内存占用
     )
